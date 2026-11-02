@@ -1,0 +1,21 @@
+Farm Progress redistributes the unmodified official BepInEx 5.4.23.2 Windows x64 loader package.
+Release: https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.2
+BepInEx source: https://github.com/BepInEx/BepInEx/tree/v5.4.23.2
+License: MIT (BepInEx.txt).
+
+The loader contains Harmony/HarmonyX, Mono.Cecil and MonoMod components.
+Their upstream copyright notices and licenses are included in this directory.
+https://github.com/BepInEx/HarmonyX
+https://github.com/pardeike/Harmony
+https://github.com/jbevain/cecil
+https://github.com/MonoMod/MonoMod
+
+winhttp.dll is Unity Doorstop 4.3.0, supplied unmodified in the official BepInEx package.
+License: GNU LGPL 2.1 (UnityDoorstop.txt).
+Corresponding source release: https://github.com/NeighTools/UnityDoorstop/tree/v4.3.0
+Source archive: https://github.com/NeighTools/UnityDoorstop/archive/refs/tags/v4.3.0.zip
+Doorstop is a separate replaceable library. You may replace it with a compatible rebuilt library;
+Farm Progress imposes no restriction on modifications or debugging of that library.
+The upstream source archive is also attached alongside the Farm Progress release.
+
+No Farm Together game assembly or decompiled game source is redistributed.
