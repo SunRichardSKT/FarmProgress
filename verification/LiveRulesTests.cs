@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using FarmProgress;
 using Newtonsoft.Json.Linq;
 class LiveRulesTests
@@ -49,6 +50,7 @@ class LiveRulesTests
         GuideChecks();
         HarvestGuideChecks();
         RangeChecks();
+        TargetNameChecks();
         Console.WriteLine(count + " monitor/reminder/numeric checks passed");
     }
     static void PresentationChecks()
@@ -203,5 +205,46 @@ class LiveRulesTests
         row["x"] = 5; index.Add(row, "very-far", "Very far", 20000, 0, 0, 0.1);
         Check(index.Pick(0, 0, 0, null, null, 10000, true).TileX == 5, "custom radius supports ten thousand farm tiles");
         Check(index.Pick(0, 0, 0, null, null, 0).TileX == 1, "default nearest behavior is preserved");
+    }
+    static void TargetNameChecks()
+    {
+        var rules = new LiveRules();
+        var carrot = new LiveGroup { Key = "carrot", Name = "胡萝卜", Category = "Crop", LowWater = 42, Ready = 10, TaskRemaining = 10 };
+        var cow = new LiveGroup { Key = "cow", Name = "奶牛", Category = "Animal", Hungry = true, FeedShort = true };
+        var goat = new LiveGroup { Key = "goat", Name = "山羊", Category = "Animal", FeedShort = true };
+        rules.Groups.Add("carrot", carrot); rules.Groups.Add("cow", cow); rules.Groups.Add("goat", goat);
+        var counts = MonitorCounts.From(rules);
+        Check(counts.Card(3).Targets == "胡萝卜" && counts.Card(3).Body == "42 格缺水", "watering popup shows relevant target name and exact quantity");
+        Check(counts.Card(0).Targets == "奶牛" && counts.Card(4).Targets == "山羊", "hungry and forecast popups use their own animal names");
+        Check(counts.Card(1).Targets == "胡萝卜" && !counts.Card(2).Targets.Contains("奶牛"), "task and harvest names exclude unrelated animals");
+        rules.Groups.Add("carrot2", new LiveGroup { Name = "胡萝卜", Category = "Crop", LowWater = 2 });
+        Check(MonitorCounts.From(rules).Card(3).Targets == "胡萝卜", "same variety across regions appears once");
+        rules.Groups.Add("corn", new LiveGroup { Name = "玉米", Category = "Crop", LowWater = 20 });
+        rules.Groups.Add("wheat", new LiveGroup { Name = "小麦", Category = "Crop", LowWater = 1 });
+        string names = MonitorCounts.From(rules).Card(3).Targets;
+        Check(names == "胡萝卜、玉米等3种", "merged reminder presents two representative names and variety count");
+        Check(StringInfo.ParseCombiningCharacters(names).Length <= 18, "merged names stay within popup text budget");
+        var queue = new ReminderQueue(); queue.Add(new List<ReminderEvent> { new ReminderEvent { Kind = 3 } }, false, false);
+        carrot.LowWater = 0; rules.Groups["carrot2"].LowWater = 0; rules.Groups["wheat"].LowWater = 0;
+        Check(queue.Take(rules, 0, 30, false, false).Targets == "玉米", "queued popup refreshes names after work is resolved");
+        Check(TargetText.GuideTitle(0, false, "胡萝卜") == "浇水 · 胡萝卜" && TargetText.GuideTitle(1, true, "奶牛") == "喂食 · 奶牛", "direction markers include operation and target name");
+        Check(TargetText.GuideTitle(2, false, "苹果树") == "收获 · 苹果树" && TargetText.GuideTitle(1, false, "山羊") == "补料 · 山羊", "harvest and feed forecast labels identify actual target");
+        string longName = new string('名', 60);
+        Check(TargetText.Compact(longName, 12).EndsWith("…") && StringInfo.ParseCombiningCharacters(TargetText.Compact(longName, 12)).Length == 12, "long direction names truncate to a bounded label");
+        string combined = "A\u0301\U0001F34E\U0001F34E胡萝卜";
+        Check(StringInfo.ParseCombiningCharacters(TargetText.Compact(combined, 4)).Length == 4 && TargetText.Compact(combined, 4).EndsWith("…"), "truncation retains Unicode text-element boundaries");
+        Check(TargetText.Name("  胡萝卜\n\t 玉米  ", "unknown") == "胡萝卜 玉米", "embedded whitespace cannot split a one-line target label");
+        Check(TargetText.Name(" \n\t", "CropA") == "CropA" && TargetText.Name(null, null) == "未命名目标", "missing translated names have readable fallbacks");
+        var pondRules = new LiveRules(); var pondIndex = new GuideIndex();
+        var fish = Row("Pond", 1); fish["id"] = "waiting"; fish["pondId"] = 7; fish["pondHarvestable"] = true;
+        var group = pondRules.Add(fish, "未成熟鲱鱼", 0.1, 300); pondIndex.Add(fish, group.Key, "未成熟鲱鱼", 1, 0, 0, 0.1);
+        fish["id"] = "ready"; fish["x"] = 2; fish["ready"] = true;
+        pondRules.Add(fish, "金鱼", 0.1, 300); pondIndex.Add(fish, group.Key, "金鱼", 10, 0, 0, 0.1); pondIndex.CompleteNames(pondRules);
+        Check(MonitorCounts.From(pondRules).Card(2).Targets == "金鱼", "mixed pond popup names fish that are actually harvestable");
+        var nearest = pondIndex.Pick(2, 0, 0, null, null);
+        Check(nearest.TileX == 1 && nearest.Name.Contains("金鱼") && !nearest.Name.Contains("未成熟鲱鱼"), "nearest pond interaction marker names harvestable fish rather than waiting fish at that tile");
+        var first = new Dictionary<string, int> { { "玉米", 3 }, { "胡萝卜", 3 } };
+        var second = new Dictionary<string, int> { { "胡萝卜", 3 }, { "玉米", 3 } };
+        Check(TargetText.Summary(first, "目标") == TargetText.Summary(second, "目标"), "equal-size groups yield stable name ordering");
     }
 }

@@ -23,7 +23,7 @@ namespace FarmProgress
         float nextPick, waterThreshold;
         bool visible;
         string focusGroup;
-        GUIStyle label;
+        GUIStyle label, distanceLabel;
         public Action<int> OpenDetails;
         public DirectionGuide(ConfigFile config)
         {
@@ -86,7 +86,12 @@ namespace FarmProgress
         public void Draw(float scale)
         {
             if (!visible || camera == null) return;
-            if (label == null) label = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip };
+            if (label == null)
+            {
+                label = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip, richText = false };
+                distanceLabel = new GUIStyle(label) { fontStyle = FontStyle.Normal };
+                distanceLabel.normal.textColor = new Color(0.82f, 0.88f, 0.92f);
+            }
             Rect pixels = camera.pixelRect;
             var view = new Rect(pixels.x, Screen.height - pixels.yMax, pixels.width, pixels.height);
             float s = Mathf.Min(scale, view.width / 360f, view.height / 240f);
@@ -115,21 +120,25 @@ namespace FarmProgress
                 anchor.x = Mathf.Clamp(anchor.x, view.x + 28 * s, view.xMax - 28 * s);
                 anchor.y = Mathf.Clamp(anchor.y, view.y + 28 * s, view.yMax - 28 * s);
                 Color accent = kind == 2 ? new Color(0.42f, 0.91f, 0.57f) : kind == 0 ? new Color(0.38f, 0.77f, 1f) : target.Hungry ? new Color(1f, 0.40f, 0.36f) : new Color(1f, 0.78f, 0.30f);
+                label.fontSize = Mathf.RoundToInt(16 * s); label.normal.textColor = accent;
+                distanceLabel.fontSize = Mathf.RoundToInt(12 * s);
+                string title = TargetText.GuideTitle(kind, target.Hungry, target.Name);
+                float boxWidth = Mathf.Clamp(label.CalcSize(new GUIContent(title)).x + 24 * s, 166 * s, 280 * s);
                 Vector2 center;
                 if (placement.OnScreen)
                 {
                     anchor.y += Mathf.Sin(Time.realtimeSinceStartup * 2.4f) * 3 * s;
-                    direction = Vector2.down; center = anchor + new Vector2(0, -42 * s);
+                    direction = Vector2.down; center = anchor + new Vector2(0, -52 * s);
                 }
-                else center = anchor - new Vector2(direction.x * 108 * s, direction.y * 55 * s);
-                var box = new Rect(center.x - 83 * s, center.y - 18 * s, 166 * s, 36 * s);
+                else center = anchor - new Vector2(direction.x * (boxWidth / 2 + 30 * s), direction.y * 65 * s);
+                var box = new Rect(center.x - boxWidth / 2, center.y - 26 * s, boxWidth, 52 * s);
                 box.x = Mathf.Clamp(box.x, view.x + 6 * s, view.xMax - box.width - 6 * s);
                 box.y = Mathf.Clamp(box.y, view.y + 6 * s, view.yMax - box.height - 6 * s);
                 Rect originalBox = box;
                 for (int attempt = 0; attempt < 5; attempt++)
                 {
                     float offset = attempt == 0 ? 0 : (attempt + 1) / 2 * (attempt % 2 == 1 ? 1 : -1);
-                    box.y = Mathf.Clamp(originalBox.y + offset * 46 * s, view.y + 6 * s, view.yMax - box.height - 6 * s);
+                    box.y = Mathf.Clamp(originalBox.y + offset * 62 * s, view.y + 6 * s, view.yMax - box.height - 6 * s);
                     bool crowded = false;
                     for (int previous = 0; previous < drawn; previous++) crowded |= box.Overlaps(drawnLabels[previous]);
                     if (!crowded) break;
@@ -137,12 +146,12 @@ namespace FarmProgress
                 Fill(new Rect(box.x + 2, box.y + 3, box.width, box.height), new Color(0, 0, 0, 0.45f));
                 Fill(box, new Color(0.035f, 0.05f, 0.08f, 0.96f));
                 Fill(new Rect(box.x, box.y, 4 * s, box.height), accent);
-                label.fontSize = Mathf.RoundToInt(16 * s); label.normal.textColor = accent;
                 double distance = Math.Sqrt(target.DistanceSquared(playerPosition.x, playerPosition.z)) / 2;
-                string title = kind == 2 ? "收获" : kind == 0 ? "浇水" : target.Hungry ? "喂食" : "补料";
-                string text = title + " · " + (distance < 1 ? "就在附近" : "约 " + Math.Ceiling(distance) + " 格");
+                string distanceText = distance < 1 ? "就在附近" : "约 " + Math.Ceiling(distance) + " 格";
                 string tooltip = target.Name + " (" + target.TileX + "," + target.TileY + ")；直线距离，不代表可通行路线";
-                if (GUI.Button(box, new GUIContent(text, tooltip), label) && OpenDetails != null) OpenDetails(kind == 2 ? 1 : kind == 0 ? 2 : 3);
+                if (GUI.Button(box, new GUIContent("", tooltip), GUIStyle.none) && OpenDetails != null) OpenDetails(kind == 2 ? 1 : kind == 0 ? 2 : 3);
+                GUI.Label(new Rect(box.x + 8 * s, box.y + 3 * s, box.width - 16 * s, 25 * s), title, label);
+                GUI.Label(new Rect(box.x + 8 * s, box.y + 28 * s, box.width - 16 * s, 20 * s), distanceText, distanceLabel);
                 DrawArrow(anchor, direction, accent, s);
                 drawnLabels[drawn] = box; drawnAnchors[drawn] = anchor; drawn++;
             }

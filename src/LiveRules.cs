@@ -10,6 +10,7 @@ namespace FarmProgress
         public int X, Y, RegionX, RegionY, Count, Ready, LowWater, Soon, TaskRemaining;
         public bool Hungry, FeedShort;
         public double? Eta;
+        public readonly HashSet<string> HarvestNames = new HashSet<string>(StringComparer.Ordinal);
         public string Summary { get { return Name + " · " + Count + "格 · 可收获 " + Ready + " · 缺水 " + LowWater +
             (Hungry ? " · 已断粮" : FeedShort ? " · 饲料不足" : "") + (TaskRemaining > 0 ? " · 任务还需 " + TaskRemaining : "") +
             " · (" + X + "," + Y + ")"; } }
@@ -37,12 +38,13 @@ namespace FarmProgress
             LiveGroup group;
             if (!Groups.TryGetValue(key, out group))
             {
-                group = new LiveGroup { Key = key, Name = name, ItemId = id, Category = category, X = x, Y = y, RegionX = regionX, RegionY = regionY };
+                group = new LiveGroup { Key = key, Name = TargetText.Name(name, id), ItemId = id, Category = category, X = x, Y = y, RegionX = regionX, RegionY = regionY };
                 Groups.Add(key, group);
             }
             group.Count++;
             bool ready = category == "Pond" ? (bool?)row["pondHarvestable"] == true : (bool?)row["ready"] == true;
             if (ready) group.Ready = category == "Pond" ? 1 : group.Ready + 1;
+            if (ready && (category != "Pond" || (bool?)row["ready"] == true)) group.HarvestNames.Add(TargetText.Name(name, id));
             if (!ready && NeedsWater(row, waterThreshold)) group.LowWater++;
             var eta = (double?)row["remainingSecondsEstimate"];
             if (!ready && eta.HasValue)

@@ -9,6 +9,7 @@ namespace FarmProgress
         public string Key, GroupKey, Name, ItemId;
         public int Kind, TileX, TileY;
         public bool Hungry;
+        public bool IsPond;
         public double X, Y, Z;
         public double DistanceSquared(double playerX, double playerZ)
         { double dx = X - playerX, dz = Z - playerZ; return dx * dx + dz * dz; }
@@ -36,7 +37,24 @@ namespace FarmProgress
             targets.Add(new GuideTarget { Kind = harvest ? 2 : water ? 0 : 1, Hungry = feed && available == 0,
                 Key = harvest ? ((string)row["category"] == "Pond" ? "harvest:pond:" + row["pondId"] : "harvest:" + x + ":" + y) :
                     water ? "water:" + x + ":" + y : "feed:" + row["animalFieldId"] + ":" + row["id"],
-                GroupKey = groupKey, Name = name, ItemId = (string)row["id"], TileX = x, TileY = y, X = worldX, Y = worldY, Z = worldZ });
+                GroupKey = groupKey, Name = TargetText.Name(name, (string)row["id"]), IsPond = (string)row["category"] == "Pond", ItemId = (string)row["id"], TileX = x, TileY = y, X = worldX, Y = worldY, Z = worldZ });
+        }
+        public void CompleteNames(LiveRules rules)
+        {
+            var summaries = new Dictionary<string, string>();
+            foreach (var target in targets)
+                if (target.Kind == 2 && target.IsPond)
+                {
+                    string summary;
+                    if (!summaries.TryGetValue(target.GroupKey, out summary))
+                    {
+                        LiveGroup group;
+                        summary = rules.Groups.TryGetValue(target.GroupKey, out group) && group.HarvestNames.Count > 0 ?
+                            "鱼塘 · " + TargetText.Summary(group.HarvestNames, "鱼塘") : "鱼塘";
+                        summaries[target.GroupKey] = summary;
+                    }
+                    target.Name = summary;
+                }
         }
         public GuideTarget Pick(int kind, double playerX, double playerZ, string previousKey, string focusGroup, double maxDistanceTiles = 0, bool preferFar = false)
         {

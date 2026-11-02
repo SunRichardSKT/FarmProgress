@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace FarmProgress
 {
-    [BepInPlugin("local.farmtogether.progress", "Farm Progress", "1.6.4")]
+    [BepInPlugin("local.farmtogether.progress", "Farm Progress", "1.6.5")]
     [BepInProcess("FarmTogether.exe")]
     [DefaultExecutionOrder(-10000)]
     public sealed class Plugin : BaseUnityPlugin
@@ -50,7 +50,7 @@ namespace FarmProgress
             admin = new AdminNetwork(Config, Logger);
             admin.SyncBlocked = () => syncRecovery != null && syncRecovery.NeedsAttention;
             adminPanel = new AdminPanel(admin);
-            Logger.LogInfo("Farm Progress 1.6.4 loaded. Redesigned F8 panel, configurable guidance range and cursor capture enabled.");
+            Logger.LogInfo("Farm Progress 1.6.5 loaded. Target names included in floating guidance and grouped notifications.");
         }
         void CopyFarm()
         {

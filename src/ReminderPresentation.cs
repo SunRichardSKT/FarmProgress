@@ -8,7 +8,7 @@ namespace FarmProgress
     public sealed class ReminderCard
     {
         public int Kind, Filter;
-        public string Title, Body;
+        public string Title, Body, Targets;
         public bool Urgent { get { return Kind == 0; } }
     }
 
@@ -16,6 +16,7 @@ namespace FarmProgress
     {
         public int HarvestTiles, HarvestPonds, Water, Hungry, ShortFeed, Soon, TaskReady;
         public int Harvest { get { return HarvestTiles + HarvestPonds; } }
+        readonly Dictionary<string, int>[] names = { new Dictionary<string, int>(), new Dictionary<string, int>(), new Dictionary<string, int>(), new Dictionary<string, int>(), new Dictionary<string, int>(), new Dictionary<string, int>() };
         public static MonitorCounts From(LiveRules rules)
         {
             var counts = new MonitorCounts();
@@ -28,6 +29,19 @@ namespace FarmProgress
                 else if (group.FeedShort) counts.ShortFeed++;
                 counts.Soon += group.Soon;
                 if (group.TaskRemaining > 0) counts.TaskReady += group.Ready;
+                if (group.Hungry) TargetText.Add(counts.names[0], group.Name, 1);
+                else if (group.FeedShort) TargetText.Add(counts.names[4], group.Name, 1);
+                TargetText.Add(counts.names[3], group.Name, group.LowWater);
+                TargetText.Add(counts.names[5], group.Name, group.Soon);
+                if (group.Ready > 0)
+                {
+                    IEnumerable<string> harvestNames = group.HarvestNames.Count > 0 ? (IEnumerable<string>)group.HarvestNames : new[] { group.Category == "Pond" ? "鱼塘" : group.Name };
+                    foreach (var name in harvestNames)
+                    {
+                        TargetText.Add(counts.names[2], name, group.Ready);
+                        if (group.TaskRemaining > 0) TargetText.Add(counts.names[1], name, group.Ready);
+                    }
+                }
             }
             return counts;
         }
@@ -46,15 +60,19 @@ namespace FarmProgress
         }
         public ReminderCard Card(int kind)
         {
+            ReminderCard card;
             switch (kind)
             {
-                case 0: return new ReminderCard { Kind = kind, Filter = 3, Title = "该喂食了", Body = Hungry + " 组动物已断粮" };
-                case 1: return new ReminderCard { Kind = kind, Filter = 5, Title = "任务目标可以收获了", Body = "收获后可推进任务" };
-                case 2: return new ReminderCard { Kind = kind, Filter = 1, Title = "可以收获了", Body = HarvestPonds == 0 ? HarvestTiles + " 格已成熟" : HarvestTiles == 0 ? HarvestPonds + " 个鱼塘可收获" : HarvestTiles + " 格成熟 · " + HarvestPonds + " 个鱼塘" };
-                case 3: return new ReminderCard { Kind = kind, Filter = 2, Title = "该浇水了", Body = Water + " 格缺水" };
-                case 4: return new ReminderCard { Kind = kind, Filter = 3, Title = "饲料快不够了", Body = ShortFeed + " 组动物需要补料" };
-                default: return new ReminderCard { Kind = kind, Filter = 4, Title = "快成熟了", Body = Soon + " 格即将成熟" };
+                case 0: card = new ReminderCard { Kind = kind, Filter = 3, Title = "该喂食了", Body = Hungry + " 组动物已断粮" }; break;
+                case 1: card = new ReminderCard { Kind = kind, Filter = 5, Title = "任务目标可以收获了", Body = "收获后可推进任务" }; break;
+                case 2: card = new ReminderCard { Kind = kind, Filter = 1, Title = "可以收获了", Body = HarvestPonds == 0 ? HarvestTiles + " 格已成熟" : HarvestTiles == 0 ? HarvestPonds + " 个鱼塘可收获" : HarvestTiles + " 格成熟 · " + HarvestPonds + " 个鱼塘" }; break;
+                case 3: card = new ReminderCard { Kind = kind, Filter = 2, Title = "该浇水了", Body = Water + " 格缺水" }; break;
+                case 4: card = new ReminderCard { Kind = kind, Filter = 3, Title = "饲料快不够了", Body = ShortFeed + " 组动物需要补料" }; break;
+                default: card = new ReminderCard { Kind = kind, Filter = 4, Title = "快成熟了", Body = Soon + " 格即将成熟" }; break;
             }
+            string[] fallback = { "动物", "任务目标", "成熟目标", "作物或花卉", "动物", "生长目标" };
+            card.Targets = TargetText.Summary(names[kind], fallback[kind]);
+            return card;
         }
     }
 

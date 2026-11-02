@@ -26,7 +26,7 @@ namespace FarmProgress
         ReminderQueue queue = new ReminderQueue();
         MonitorCounts currentCounts;
         float toastDuration;
-        GUIStyle titleStyle, bodyStyle, hintStyle, hudNumberStyle, hudLabelStyle;
+        GUIStyle titleStyle, bodyStyle, targetStyle, hintStyle, hudNumberStyle, hudLabelStyle;
         Vector2 scroll;
         int filter;
         int settingsTab;
@@ -112,6 +112,7 @@ namespace FarmProgress
             if (selected != null) { LiveGroup refreshed; selected = Current.Groups.TryGetValue(selected.Key, out refreshed) ? refreshed : null; }
             currentCounts = MonitorCounts.From(Current);
             guidanceIndex = buildingGuidance;
+            guidanceIndex.CompleteNames(Current);
             guides.Update(farm, guidanceIndex, Mathf.Clamp01(threshold.Value));
             nextScan = capturedAt + Mathf.Clamp(interval.Value, 0.5f, 60f);
             if (reminders.Value && Time.realtimeSinceStartup >= mutedUntil)
@@ -150,6 +151,7 @@ namespace FarmProgress
             if (titleStyle != null) return;
             titleStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip };
             bodyStyle = new GUIStyle(titleStyle) { fontStyle = FontStyle.Normal };
+            targetStyle = new GUIStyle(bodyStyle) { richText = false };
             hintStyle = new GUIStyle(bodyStyle);
             hudNumberStyle = new GUIStyle(titleStyle) { alignment = TextAnchor.MiddleCenter };
             hudLabelStyle = new GUIStyle(bodyStyle) { alignment = TextAnchor.MiddleCenter };
@@ -200,16 +202,17 @@ namespace FarmProgress
         }
         void DrawCard(float s)
         {
-            float width = 350 * s, height = 126 * s;
+            float width = 350 * s, height = 156 * s;
             var rect = new Rect((Screen.width - width) / 2, Mathf.Min(95 * s, Screen.height - height - 10), width, height);
             Color accent = toast.Kind == 0 ? Red : toast.Kind == 3 ? Blue : toast.Kind >= 4 ? Amber : Green;
             var old = GUI.color; GUI.color = new Color(old.r, old.g, old.b, old.a * Mathf.Clamp01((toastUntil - Time.realtimeSinceStartup) / 0.4f));
             Surface(rect, accent);
             titleStyle.fontSize = Mathf.RoundToInt(23 * s); titleStyle.normal.textColor = accent;
-            bodyStyle.fontSize = Mathf.RoundToInt(19 * s); hintStyle.fontSize = Mathf.RoundToInt(12 * s);
+            bodyStyle.fontSize = Mathf.RoundToInt(19 * s); targetStyle.fontSize = Mathf.RoundToInt(16 * s); hintStyle.fontSize = Mathf.RoundToInt(12 * s);
             GUI.Label(new Rect(rect.x + 20 * s, rect.y + 12 * s, width - 50 * s, 34 * s), toast.Title, titleStyle);
-            GUI.Label(new Rect(rect.x + 20 * s, rect.y + 50 * s, width - 35 * s, 30 * s), toast.Body, bodyStyle);
-            GUI.Label(new Rect(rect.x + 20 * s, rect.y + 91 * s, width - 35 * s, 24 * s), "F8 查看位置 · 按住 Alt 可点击", hintStyle);
+            GUI.Label(new Rect(rect.x + 20 * s, rect.y + 48 * s, width - 35 * s, 25 * s), toast.Targets, targetStyle);
+            GUI.Label(new Rect(rect.x + 20 * s, rect.y + 79 * s, width - 35 * s, 30 * s), toast.Body, bodyStyle);
+            GUI.Label(new Rect(rect.x + 20 * s, rect.y + 121 * s, width - 35 * s, 24 * s), "F8 查看位置 · 按住 Alt 可点击", hintStyle);
             float remaining = Mathf.Clamp01((toastUntil - Time.realtimeSinceStartup) / toastDuration);
             Fill(new Rect(rect.x + 5, rect.yMax - 3, (width - 5) * remaining, 3), accent);
             if (GUI.Button(new Rect(rect.xMax - 29 * s, rect.y + 5 * s, 24 * s, 24 * s), "×", hintStyle)) toast = null;
