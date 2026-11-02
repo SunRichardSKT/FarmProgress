@@ -68,12 +68,11 @@ namespace FarmProgress
         Dictionary<string, bool> states = new Dictionary<string, bool>();
         readonly Dictionary<string, double> last = new Dictionary<string, double>();
         bool initialized;
-        public List<string> Evaluate(LiveRules rules, double now, double cooldown)
+        public List<ReminderEvent> Evaluate(LiveRules rules, double now, double cooldown)
         {
-            var next = new Dictionary<string, bool>(); var messages = new List<string>();
+            var next = new Dictionary<string, bool>(); var messages = new List<ReminderEvent>();
             foreach (var group in rules.Groups.Values)
             {
-                string[] labels = { "动物断粮", "任务目标可收获", "可以收获", "需要浇水", "饲料不足", "即将成熟" };
                 bool[] values = { group.Hungry, group.Ready > 0 && group.TaskRemaining > 0,
                     group.Ready > 0, group.LowWater > 0, group.FeedShort && !group.Hungry, group.Soon > 0 };
                 for (int i = 0; i < values.Length; i++)
@@ -81,7 +80,11 @@ namespace FarmProgress
                     string key = group.Key + ":" + i; next[key] = values[i]; bool previous; double previousTime;
                     if (values[i] && initialized && (!states.TryGetValue(key, out previous) || !previous) &&
                         (!last.TryGetValue(key, out previousTime) || now - previousTime >= cooldown))
-                    { messages.Add(labels[i] + "：" + group.Summary); last[key] = now; }
+                    {
+                        // A task harvest already covers the same ready group.
+                        if (i != 2 || group.TaskRemaining == 0) messages.Add(new ReminderEvent { Kind = i });
+                        last[key] = now;
+                    }
                 }
             }
             states = next; initialized = true; return messages;

@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace FarmProgress
 {
-    [BepInPlugin("local.farmtogether.progress", "Farm Progress", "1.6.0")]
+    [BepInPlugin("local.farmtogether.progress", "Farm Progress", "1.6.1")]
     [BepInProcess("FarmTogether.exe")]
     public sealed class Plugin : BaseUnityPlugin
     {
@@ -40,10 +40,11 @@ namespace FarmProgress
                 syncRecovery = new SyncRecovery(Logger);
             guestFuel = new GuestFuelAssist(Config, Logger);
             monitor = new LiveMonitor(Config);
+            monitor.OpenDetails = targetFilter => { visible = true; panelTab = 0; panelScroll = Vector2.zero; };
             admin = new AdminNetwork(Config, Logger);
             admin.SyncBlocked = () => syncRecovery != null && syncRecovery.NeedsAttention;
             adminPanel = new AdminPanel(admin);
-            Logger.LogInfo("Farm Progress 1.6.0 loaded. Live monitor, reminders and host-authorized administration enabled.");
+            Logger.LogInfo("Farm Progress 1.6.1 loaded. Compact grouped notifications and live farm tools enabled.");
         }
         void CopyFarm()
         {

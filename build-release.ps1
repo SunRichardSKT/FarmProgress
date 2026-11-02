@@ -1,4 +1,4 @@
-param([string]$GameDir = 'F:\SteamLibrary\steamapps\common\Farm Together', [string]$Version = '1.6.0')
+param([string]$GameDir = 'F:\SteamLibrary\steamapps\common\Farm Together', [string]$Version = '1.6.1')
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'build.ps1') -GameDir $GameDir
 if ($LASTEXITCODE -ne 0) { throw 'Mod build failed' }
@@ -14,7 +14,7 @@ Copy-Item -Path (Join-Path $PSScriptRoot 'tools\bepinex\BepInEx\core\*.dll') -De
 $plugin = Join-Path $staging 'BepInEx\plugins\FarmProgress'
 New-Item -ItemType Directory -Force -Path $plugin | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'dist\BepInEx\plugins\FarmProgress\FarmProgress.dll') -Destination $plugin -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'docs\release-1.6.0.md') -Destination (Join-Path $staging 'README.md') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "docs\release-$Version.md") -Destination (Join-Path $staging 'README.md') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'install.ps1') -Destination $staging -Force
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'licenses')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'licenses') -Destination $plugin -Recurse -Force }
 Add-Type -AssemblyName System.IO.Compression.FileSystem

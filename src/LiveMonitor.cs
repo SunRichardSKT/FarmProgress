@@ -11,17 +11,24 @@ namespace FarmProgress
     {
         readonly ConfigEntry<bool> enabled, reminders, hud;
         readonly ConfigEntry<float> threshold, interval, advance, cooldown;
+        readonly ConfigEntry<bool> feedForecast, upcoming;
+        readonly ConfigEntry<float> noticeScale, noticeSpacing;
         FarmData farm;
         IEnumerator<FarmTile> scan;
         GrowthSnapshot growth;
         LiveRules building;
         ReminderRules rules;
         float nextScan, capturedAt, toastUntil;
-        string toast;
+        ReminderCard toast;
+        ReminderQueue queue = new ReminderQueue();
+        MonitorCounts currentCounts;
+        float toastDuration;
+        GUIStyle titleStyle, bodyStyle, hintStyle, hudNumberStyle, hudLabelStyle;
         Vector2 scroll;
         int filter;
         LiveGroup selected;
-        Rect hudRect = new Rect(20, 55, 690, 55);
+        Rect hudRect = new Rect(20, 55, 350, 85);
+        public Action<int> OpenDetails;
         public LiveRules Current { get; private set; }
         public string Error { get; private set; }
         public LiveMonitor(ConfigFile config)
@@ -33,6 +40,10 @@ namespace FarmProgress
             interval = config.Bind("Monitor", "RefreshSeconds", 2f, "Delay between completed scans");
             advance = config.Bind("Monitor", "AdvanceMinutes", 5f, "Upcoming harvest warning in minutes");
             cooldown = config.Bind("Monitor", "ReminderCooldownSeconds", 300f, "Reminder cooldown per group and state");
+            feedForecast = config.Bind("Monitor", "FeedForecastNotifications", false, "Also pop up forecast warnings before feed runs out");
+            upcoming = config.Bind("Monitor", "UpcomingNotifications", false, "Also pop up upcoming maturity reminders");
+            noticeScale = config.Bind("Monitor", "NotificationScale", 1.1f, "Size of the compact HUD and notification cards, 0.8 to 1.6");
+            noticeSpacing = config.Bind("Monitor", "NotificationSpacingSeconds", 30f, "Minimum interval between grouped cards");
         }
         static IEnumerable<FarmTile> Tiles(FarmData data)
         {
@@ -45,7 +56,7 @@ namespace FarmProgress
             if (!ReferenceEquals(farm, data))
             {
                 if (scan != null) scan.Dispose(); scan = null; farm = data;
-                Current = null; rules = new ReminderRules(); nextScan = 0; selected = null; toast = null; Error = null;
+                Current = null; currentCounts = null; rules = new ReminderRules(); queue = new ReminderQueue(); nextScan = 0; selected = null; toast = null; Error = null;
             }
             if (farm == null || !enabled.Value) return;
             if (scan == null)
@@ -80,28 +91,126 @@ namespace FarmProgress
                             group.TaskRemaining += (int)Math.Min(int.MaxValue, Math.Max(0L, (long)item.RequiredAmount - item.Progress));
             var notes = rules.Evaluate(building, Time.realtimeSinceStartup, Math.Max(0, cooldown.Value));
             bool first = Current == null; Current = building; Error = null; capturedAt = Time.realtimeSinceStartup;
+            currentCounts = MonitorCounts.From(Current);
             nextScan = capturedAt + Mathf.Clamp(interval.Value, 0.5f, 60f);
-            if (reminders.Value && Time.realtimeSinceStartup >= mutedUntil && (first || notes.Count > 0))
+            if (reminders.Value && Time.realtimeSinceStartup >= mutedUntil)
             {
-                toast = first ? "农场待办：" + Current.Totals() : notes[0] + (notes.Count > 1 ? "（另有 " + (notes.Count - 1) + " 条，按 F8 查看）" : "");
-                toastUntil = capturedAt + 12;
+                var counts = currentCounts;
+                if (first && counts.Hungry > 0) notes.Add(new ReminderEvent { Kind = 0 });
+                queue.Add(notes, feedForecast.Value, upcoming.Value);
+                if (toast != null && !counts.Needs(toast.Kind)) toast = null;
+                if (toast == null || capturedAt >= toastUntil)
+                {
+                    toast = queue.Take(Current, capturedAt, noticeSpacing.Value, feedForecast.Value, upcoming.Value);
+                    if (toast != null) { toastDuration = toast.Urgent ? 12 : 8; toastUntil = capturedAt + toastDuration; }
+                }
+                else toast = counts.Card(toast.Kind);
             }
+            else { queue.Clear(); toast = null; }
         }
         public void DrawHud()
         {
             if (farm == null || !enabled.Value) return;
-            if (hud.Value) hudRect = GUILayout.Window(183748, hudRect, id => {
-                GUILayout.Label(Current == null ? "正在扫描农场…" : Current.Totals()); GUI.DragWindow();
-            }, "农场实时待办 · F8 查看");
-            if (reminders.Value && Time.realtimeSinceStartup < toastUntil && toast != null)
-                GUI.Box(new Rect(20, Screen.height - 90, Mathf.Min(920, Screen.width - 40), 65), toast);
+            EnsureStyles();
+            float scale = Mathf.Min(Mathf.Clamp(noticeScale.Value, 0.8f, 1.6f), (Screen.width - 24) / 350f);
+            if (hud.Value)
+            {
+                hudRect.width = 320 * scale; hudRect.height = 78 * scale;
+                hudRect.x = Mathf.Clamp(hudRect.x, 0, Mathf.Max(0, Screen.width - hudRect.width));
+                hudRect.y = Mathf.Clamp(hudRect.y, 0, Mathf.Max(0, Screen.height - hudRect.height));
+                hudRect = GUI.Window(183748, hudRect, DrawCompactHud, "", GUIStyle.none);
+            }
+            if (reminders.Value && Time.realtimeSinceStartup >= mutedUntil && Time.realtimeSinceStartup < toastUntil && toast != null) DrawCard(scale);
+        }
+        static readonly Color Green = new Color(0.42f, 0.91f, 0.57f), Blue = new Color(0.38f, 0.77f, 1f), Red = new Color(1f, 0.40f, 0.36f), Amber = new Color(1f, 0.78f, 0.30f);
+        void EnsureStyles()
+        {
+            if (titleStyle != null) return;
+            titleStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip };
+            bodyStyle = new GUIStyle(titleStyle) { fontStyle = FontStyle.Normal };
+            hintStyle = new GUIStyle(bodyStyle);
+            hudNumberStyle = new GUIStyle(titleStyle) { alignment = TextAnchor.MiddleCenter };
+            hudLabelStyle = new GUIStyle(bodyStyle) { alignment = TextAnchor.MiddleCenter };
+            titleStyle.normal.textColor = bodyStyle.normal.textColor = hudNumberStyle.normal.textColor = Color.white;
+            hintStyle.normal.textColor = hudLabelStyle.normal.textColor = new Color(0.72f, 0.77f, 0.83f);
+        }
+        static void Fill(Rect rect, Color color)
+        {
+            var old = GUI.color; GUI.color = old * color; GUI.DrawTexture(rect, Texture2D.whiteTexture); GUI.color = old;
+        }
+        static void Surface(Rect rect, Color accent)
+        {
+            Fill(new Rect(rect.x + 3, rect.y + 4, rect.width, rect.height), new Color(0, 0, 0, 0.45f));
+            Fill(rect, new Color(0.04f, 0.06f, 0.09f, 0.97f));
+            Fill(new Rect(rect.x, rect.y, 5, rect.height), accent);
+        }
+        void DrawCompactHud(int id)
+        {
+            float s = hudRect.width / 320f;
+            var counts = currentCounts;
+            Surface(new Rect(0, 0, hudRect.width, hudRect.height), counts != null && counts.Hungry > 0 ? Red : Blue);
+            hintStyle.fontSize = Mathf.RoundToInt(11 * s);
+            GUI.Label(new Rect(13 * s, 4 * s, 295 * s, 20 * s), "农场待办                         拖动 · F8", hintStyle);
+            bodyStyle.fontSize = Mathf.RoundToInt(18 * s);
+            if (counts == null) GUI.Label(new Rect(15 * s, 30 * s, 290 * s, 35 * s), "正在扫描…", bodyStyle);
+            else if (counts.Harvest == 0 && counts.Water == 0 && counts.Hungry == 0 && counts.ShortFeed == 0)
+            {
+                bodyStyle.fontSize = Mathf.RoundToInt(18 * s);
+                GUI.Label(new Rect(15 * s, 30 * s, 290 * s, 35 * s), "暂无待办", bodyStyle);
+            }
+            else
+            {
+                DrawHudCount(0, "收获", counts.Harvest, Green, 1, "植物/动物按格，鱼按整塘", s);
+                DrawHudCount(1, "浇水", counts.Water, Blue, 2, "未成熟且缺水的地格", s);
+                DrawHudCount(2, "喂食", counts.Hungry + counts.ShortFeed, counts.Hungry > 0 ? Red : Amber, 3,
+                    "已断粮 " + counts.Hungry + " 组；本轮饲料不足 " + counts.ShortFeed + " 组", s);
+            }
+            GUI.DragWindow(new Rect(0, 0, hudRect.width, 24 * s));
+        }
+        void DrawHudCount(int index, string label, int count, Color accent, int targetFilter, string tooltip, float s)
+        {
+            var rect = new Rect((12 + index * 102) * s, 24 * s, 98 * s, 50 * s);
+            if (GUI.Button(rect, new GUIContent("", tooltip), GUIStyle.none)) SelectDetails(targetFilter);
+            hudNumberStyle.fontSize = Mathf.RoundToInt(24 * s); hudNumberStyle.normal.textColor = count > 0 ? accent : new Color(0.45f, 0.49f, 0.55f);
+            hudLabelStyle.fontSize = Mathf.RoundToInt(12 * s);
+            GUI.Label(new Rect(rect.x, rect.y - 2 * s, rect.width, 31 * s), count.ToString(), hudNumberStyle);
+            GUI.Label(new Rect(rect.x, rect.y + 28 * s, rect.width, 20 * s), label, hudLabelStyle);
+        }
+        void DrawCard(float s)
+        {
+            float width = 350 * s, height = 126 * s;
+            var rect = new Rect((Screen.width - width) / 2, Mathf.Min(95 * s, Screen.height - height - 10), width, height);
+            Color accent = toast.Kind == 0 ? Red : toast.Kind == 3 ? Blue : toast.Kind >= 4 ? Amber : Green;
+            var old = GUI.color; GUI.color = new Color(old.r, old.g, old.b, old.a * Mathf.Clamp01((toastUntil - Time.realtimeSinceStartup) / 0.4f));
+            Surface(rect, accent);
+            titleStyle.fontSize = Mathf.RoundToInt(23 * s); titleStyle.normal.textColor = accent;
+            bodyStyle.fontSize = Mathf.RoundToInt(19 * s); hintStyle.fontSize = Mathf.RoundToInt(12 * s);
+            GUI.Label(new Rect(rect.x + 20 * s, rect.y + 12 * s, width - 50 * s, 34 * s), toast.Title, titleStyle);
+            GUI.Label(new Rect(rect.x + 20 * s, rect.y + 50 * s, width - 35 * s, 30 * s), toast.Body, bodyStyle);
+            GUI.Label(new Rect(rect.x + 20 * s, rect.y + 91 * s, width - 35 * s, 24 * s), "点击或按 F8 查看位置", hintStyle);
+            float remaining = Mathf.Clamp01((toastUntil - Time.realtimeSinceStartup) / toastDuration);
+            Fill(new Rect(rect.x + 5, rect.yMax - 3, (width - 5) * remaining, 3), accent);
+            if (GUI.Button(new Rect(rect.xMax - 29 * s, rect.y + 5 * s, 24 * s, 24 * s), "×", hintStyle)) toast = null;
+            else if (GUI.Button(rect, "", GUIStyle.none)) { SelectDetails(toast.Filter); toast = null; }
+            GUI.color = old;
+        }
+        void SelectDetails(int targetFilter)
+        {
+            filter = targetFilter;
+            if (OpenDetails != null) OpenDetails(targetFilter);
         }
         public void DrawPanel()
         {
             enabled.Value = GUILayout.Toggle(enabled.Value, "实时监控");
             hud.Value = GUILayout.Toggle(hud.Value, "显示悬浮待办");
             reminders.Value = GUILayout.Toggle(reminders.Value, "游戏内提醒");
-            if (GUILayout.Button("静音提醒 10 分钟")) { toastUntil = 0; mutedUntil = Time.realtimeSinceStartup + 600; }
+            if (GUILayout.Button(Time.realtimeSinceStartup < mutedUntil ? "恢复提醒" : "静音提醒 10 分钟"))
+            { toast = null; queue.Clear(); mutedUntil = Time.realtimeSinceStartup < mutedUntil ? 0 : Time.realtimeSinceStartup + 600; }
+            float newScale = GUILayout.HorizontalSlider(noticeScale.Value, 0.8f, 1.6f);
+            if (Math.Abs(newScale - noticeScale.Value) >= 0.01f) noticeScale.Value = (float)Math.Round(newScale, 2);
+            GUILayout.Label("提示大小 " + Mathf.RoundToInt(noticeScale.Value * 100) + "% · 同类合并，间隔 " + Math.Max(12, noticeSpacing.Value).ToString("0") + " 秒");
+            upcoming.Value = GUILayout.Toggle(upcoming.Value, "提前成熟弹窗（默认关闭）");
+            feedForecast.Value = GUILayout.Toggle(feedForecast.Value, "饲料不足预警弹窗（默认关闭，断粮仍会提醒）");
             if (Current == null) { GUILayout.Label(Error ?? "正在分批扫描农场…"); return; }
             GUILayout.Label(Current.Totals());
             GUILayout.Label((farm.IsLocal ? "房主数据" : "当前客户端观测") + " · " + (int)(Time.realtimeSinceStartup - capturedAt) + "秒前 · 读取失败 " + Current.ReadErrors);
