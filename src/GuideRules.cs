@@ -20,16 +20,22 @@ namespace FarmProgress
         readonly HashSet<string> resolved = new HashSet<string>();
         readonly HashSet<GuideTarget> excluded = new HashSet<GuideTarget>();
         bool Available(GuideTarget target) { return !resolved.Contains(target.Key) && !excluded.Contains(target); }
+        public static bool IsHarvestable(JObject row)
+        {
+            return (bool?)row["unlocked"] == true && row["readError"] == null &&
+                ((string)row["category"] == "Pond" ? (bool?)row["pondHarvestable"] == true : (bool?)row["ready"] == true);
+        }
         public void Add(JObject row, string groupKey, string name, double worldX, double worldY, double worldZ, double threshold)
         {
-            if ((bool?)row["unlocked"] != true || row["readError"] != null || (bool?)row["ready"] == true) return;
-            bool water = LiveRules.NeedsWater(row, threshold);
+            if ((bool?)row["unlocked"] != true || row["readError"] != null) return;
+            bool harvest = IsHarvestable(row), water = !harvest && LiveRules.NeedsWater(row, threshold);
             long? available = (long?)row["foodAvailableForRace"], needed = (long?)row["foodNeededToFinishRace"];
-            bool feed = (string)row["category"] == "Animal" && available.HasValue && needed.HasValue && available < needed;
-            if (!water && !feed) return;
+            bool feed = !harvest && (bool?)row["ready"] != true && (string)row["category"] == "Animal" && available.HasValue && needed.HasValue && available < needed;
+            if (!harvest && !water && !feed) return;
             int x = (int)row["x"], y = (int)row["y"];
-            targets.Add(new GuideTarget { Kind = water ? 0 : 1, Hungry = feed && available == 0,
-                Key = water ? "water:" + x + ":" + y : "feed:" + row["animalFieldId"] + ":" + row["id"],
+            targets.Add(new GuideTarget { Kind = harvest ? 2 : water ? 0 : 1, Hungry = feed && available == 0,
+                Key = harvest ? ((string)row["category"] == "Pond" ? "harvest:pond:" + row["pondId"] : "harvest:" + x + ":" + y) :
+                    water ? "water:" + x + ":" + y : "feed:" + row["animalFieldId"] + ":" + row["id"],
                 GroupKey = groupKey, Name = name, ItemId = (string)row["id"], TileX = x, TileY = y, X = worldX, Y = worldY, Z = worldZ });
         }
         public GuideTarget Pick(int kind, double playerX, double playerZ, string previousKey, string focusGroup)

@@ -246,7 +246,7 @@ namespace FarmProgress
             {
                 GUILayout.Label("定位：" + selected.Name + "，坐标 (" + selected.X + "," + selected.Y + ")，区域 (" + selected.RegionX + "," + selected.RegionY + ")");
                 GUILayout.Label(selected.Eta.HasValue ? "下一批预计 " + TimeSpan.FromSeconds(selected.Eta.Value).ToString() : "成熟时间需继续观察（动物供料不足时未知）");
-                if ((selected.LowWater > 0 || selected.FeedShort) && GUILayout.Button("将这个区域设为方向指引目标")) guides.Focus(selected.Key);
+                if ((selected.Ready > 0 || selected.LowWater > 0 || selected.FeedShort) && GUILayout.Button("将这个区域设为方向指引目标")) guides.Focus(selected.Key);
             }
             DrawMap(groups);
             if (Error != null) GUILayout.Label("刷新错误：" + Error);

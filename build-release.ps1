@@ -1,4 +1,4 @@
-param([string]$GameDir = 'F:\SteamLibrary\steamapps\common\Farm Together', [string]$Version = '1.6.2')
+param([string]$GameDir = 'F:\SteamLibrary\steamapps\common\Farm Together', [string]$Version = '1.6.3')
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'build.ps1') -GameDir $GameDir
 if ($LASTEXITCODE -ne 0) { throw 'Mod build failed' }
@@ -32,8 +32,11 @@ $compiler = Join-Path (Split-Path (Get-Command dotnet).Source) "sdk\$sdk\Roslyn\
 $framework = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319'
 $references = @('mscorlib','System','System.Core','System.Drawing','System.Windows.Forms','System.Web.Extensions','System.IO.Compression','System.IO.Compression.FileSystem') | ForEach-Object { '/reference:' + (Join-Path $framework "$_.dll") }
 $updaterSources = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'updater') -Filter '*.cs' | ForEach-Object { $_.FullName }
-& dotnet $compiler /nologo /target:winexe /platform:x64 /nostdlib+ /langversion:9 /optimize+ "/out:$output\FarmProgress-Setup.exe" @references "/resource:$package,FarmProgress.bundle.zip" @updaterSources
+$installer = Join-Path $output "FarmProgress-Setup-$Version.exe"
+& dotnet $compiler /nologo /target:winexe /platform:x64 /nostdlib+ /langversion:9 /optimize+ "/out:$installer" @references "/resource:$package,FarmProgress.bundle.zip" @updaterSources
 if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
-Write-Host "Installer: $output\FarmProgress-Setup.exe"
+try { Copy-Item -LiteralPath $installer -Destination (Join-Path $output 'FarmProgress-Setup.exe') -Force }
+catch [System.IO.IOException] { Write-Host 'The unversioned installer is in use; the versioned installer is ready for release.' }
+Write-Host "Installer: $installer"
 Write-Host "Package: $package"
 Write-Host "Manifest: $output\update.json"

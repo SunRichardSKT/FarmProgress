@@ -47,6 +47,7 @@ class LiveRulesTests
         Throws(() => AdminNumbers.Target(0, 11, false, 10), "capacity overflow rejected");
         PresentationChecks();
         GuideChecks();
+        HarvestGuideChecks();
         Console.WriteLine(count + " monitor/reminder/numeric checks passed");
     }
     static void PresentationChecks()
@@ -150,5 +151,36 @@ class LiveRulesTests
         Check(!GuideGeometry.Place(0.5, 0.5, 1, 0, 500, 30).Valid, "inactive zero-width viewport excluded");
         var tiny = GuideGeometry.Place(2, -1, 1, 80, 60, 100);
         Check(tiny.Valid && tiny.X >= 0 && tiny.X <= 80 && tiny.Y >= 0 && tiny.Y <= 60, "small viewport retains contained edge marker");
+    }
+    static void HarvestGuideChecks()
+    {
+        var index = new GuideIndex();
+        var crop = Row("Crop", 1); crop["ready"] = true; crop["waterFraction"] = 0;
+        index.Add(crop, "crop", "Crop", 12, 0, 0, 0.1);
+        var tree = Row("Tree", 2); tree["ready"] = true;
+        index.Add(tree, "tree", "Tree", 6, 0, 0, 0.1);
+        var flower = Row("Flower", 3); flower["ready"] = true;
+        index.Add(flower, "flower", "Flower", 9, 0, 0, 0.1);
+        Check(index.Pick(2, 0, 0, null, null).TileX == 2, "harvest chooses nearest ready crop, tree or flower");
+        Check(index.Pick(0, 0, 0, null, null) == null, "ready crop belongs to harvest rather than watering guide");
+        Check(index.Pick(2, 0, 0, null, "crop").TileX == 1, "harvest can focus a selected region");
+        index.Resolve(index.Pick(2, 0, 0, null, null).Key);
+        Check(index.Pick(2, 0, 0, null, null).TileX == 3, "harvesting nearest target advances to next one");
+        var animal = Row("Animal", 4); animal["ready"] = true; animal["animalFieldId"] = 7;
+        animal["foodAvailableForRace"] = 0; animal["foodNeededToFinishRace"] = 100;
+        index.Add(animal, "animal", "Animal", 3, 0, 0, 0.1);
+        Check(index.Pick(2, 0, 0, null, null).TileX == 4 && index.Pick(1, 0, 0, null, null) == null, "mature animal gets a harvest marker instead of a feeding marker");
+        var ponds = new GuideIndex(); var pond = Row("Pond", 5); pond["ready"] = false; pond["pondHarvestable"] = true; pond["pondId"] = 9;
+        ponds.Add(pond, "pond", "Fish", 8, 0, 0, 0.1);
+        pond["x"] = 6; ponds.Add(pond, "pond", "Fish", 4, 0, 0, 0.1);
+        var nearest = ponds.Pick(2, 0, 0, null, null);
+        Check(nearest.TileX == 6, "harvestable pond can guide to nearest pond tile even when that tile is waiting");
+        ponds.Resolve(nearest.Key);
+        Check(ponds.Pick(2, 0, 0, null, null) == null, "harvested pond invalidates all its tile candidates");
+        pond["ready"] = true; pond["pondHarvestable"] = false;
+        Check(!GuideIndex.IsHarvestable(pond), "pond-wide harvest state takes precedence over individual fish timer");
+        crop["ready"] = false; Check(!GuideIndex.IsHarvestable(crop), "harvest recheck drops a harvested crop");
+        crop["ready"] = true; crop["unlocked"] = false; Check(!GuideIndex.IsHarvestable(crop), "locked mature crops excluded from guidance");
+        crop["unlocked"] = true; crop["readError"] = "failed"; Check(!GuideIndex.IsHarvestable(crop), "unreadable mature targets excluded from guidance");
     }
 }

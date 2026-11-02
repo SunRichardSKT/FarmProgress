@@ -24,7 +24,7 @@ namespace FarmProgress
     public sealed class AdminNetwork : IDisposable
     {
         const short MessageId = 19751;
-        public const string Version = "1.6.2";
+        public const string Version = "1.6.3";
         static AdminNetwork active;
         readonly ConfigEntry<bool> autoAuthorize;
         readonly ManualLogSource log;
