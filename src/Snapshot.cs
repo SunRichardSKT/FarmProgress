@@ -23,7 +23,7 @@ namespace FarmProgress
         }
         public static JObject Capture(FarmData farm)
         {
-            var root = new JObject { { "schemaVersion", 3 }, { "capturedAt", DateTimeOffset.Now.ToString("o") },
+            var root = new JObject { { "schemaVersion", 4 }, { "capturedAt", DateTimeOffset.Now.ToString("o") },
                 { "source", farm.IsLocal ? "local" : "multiplayer-client" },
                 { "assemblyMvid", typeof(FarmData).Module.ModuleVersionId.ToString() },
                 { "level", farm.Experience.Level }, { "levelProgress", farm.Experience.Progress },
@@ -127,6 +127,9 @@ namespace FarmProgress
                 foreach (var target in q.QuestItems)
                 {
                     var row = Item(target.ShopItem);
+                    row.Add("category", target.ShopItem.Category.ToString());
+                    var pondDefinition = target.ShopItem as PondDefinition;
+                    if (pondDefinition != null) row.Add("questSuccessChance", (decimal)pondDefinition.SuccessChance / 100m);
                     row.Add("required", target.RequiredAmount); row.Add("progress", target.Progress);
                     row.Add("remaining", target.Progress >= target.RequiredAmount ? 0u : target.RequiredAmount - target.Progress);
                     var resourceType = target.ShopItem.Resource.Type;
@@ -143,6 +146,7 @@ namespace FarmProgress
                 });
             }
             root.Add("taskDetails", taskDetails);
+            root.Add("taskPlan", TaskPlan.FromSnapshot(root).ToJson());
             return root;
         }
         static void AddCount(Dictionary<string, JObject> counts, FarmItemDefinition def, string category, int instances, int cells)

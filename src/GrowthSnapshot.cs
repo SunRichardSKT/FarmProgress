@@ -86,6 +86,7 @@ namespace FarmProgress
                 else
                 {
                     var pond = (PondContents)c; remaining = Math.Max(0L, (long)pond.Definition.FishInterval - pond.WaitedTime);
+                    row.Add("questSuccessChance", (decimal)pond.Definition.SuccessChance / 100m);
                     row.Add("pondId", pond.Pond.Id); row.Add("pondHarvestable", pond.Pond.State == Pond.PondState.ReadyToHarvest);
                     row.Add("waitedSeconds", pond.WaitedTime); basis = "fish_interval";
                 }

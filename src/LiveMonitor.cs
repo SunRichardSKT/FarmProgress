@@ -18,8 +18,10 @@ namespace FarmProgress
         IEnumerator<FarmTile> scan;
         GrowthSnapshot growth;
         LiveRules building;
+        TaskPlan buildingPlan;
         GuideIndex guidanceIndex, buildingGuidance;
         readonly DirectionGuide guides;
+        readonly TaskPlanOverlay taskOverlay;
         ReminderRules rules;
         float nextScan, capturedAt, toastUntil;
         ReminderCard toast;
@@ -33,13 +35,19 @@ namespace FarmProgress
         LiveGroup selected;
         Rect hudRect = new Rect(20, 55, 350, 85);
         public Action<int> OpenDetails;
+        public Action OpenTaskStatistics;
         public Action ReturnToGame;
         string search = "";
         public LiveRules Current { get; private set; }
+        public TaskPlan Planning { get; private set; }
+        public float PlanningAge { get { return Math.Max(0f, Time.realtimeSinceStartup - capturedAt); } }
+        public void RefreshPlanning() { nextScan = 0; }
         public string Error { get; private set; }
         public LiveMonitor(ConfigFile config)
         {
             guides = new DirectionGuide(config);
+            taskOverlay = new TaskPlanOverlay(config);
+            taskOverlay.OpenDetails = () => { if (OpenTaskStatistics != null) OpenTaskStatistics(); };
             guides.OpenDetails = SelectDetails;
             enabled = config.Bind("Monitor", "Enabled", true, "Monitor loaded farm in batches");
             reminders = config.Bind("Monitor", "Reminders", true, "Show grouped in-game reminders");
@@ -65,7 +73,7 @@ namespace FarmProgress
             if (!ReferenceEquals(farm, data))
             {
                 if (scan != null) scan.Dispose(); scan = null; farm = data;
-                Current = null; currentCounts = null; guidanceIndex = null; buildingGuidance = null;
+                Current = null; Planning = null; buildingPlan = null; currentCounts = null; guidanceIndex = null; buildingGuidance = null;
                 rules = new ReminderRules(); queue = new ReminderQueue(); nextScan = 0; selected = null; toast = null; Error = null;
             }
             guides.Update(enabled.Value ? data : null, guidanceIndex, Mathf.Clamp01(threshold.Value));
@@ -74,7 +82,7 @@ namespace FarmProgress
             {
                 if (Time.realtimeSinceStartup < nextScan) return;
                 scan = Tiles(farm).GetEnumerator(); growth = new GrowthSnapshot(); building = new LiveRules();
-                buildingGuidance = new GuideIndex();
+                buildingGuidance = new GuideIndex(); buildingPlan = new TaskPlan();
             }
             try
             {
@@ -86,6 +94,7 @@ namespace FarmProgress
                     {
                         row["regionX"] = tile.Chunk.ChunkPosition.x; row["regionY"] = tile.Chunk.ChunkPosition.y;
                         string name = Localization.Get(tile.Contents.ShopItemDefinition.FullId);
+                        buildingPlan.AddTile(row, name);
                         var group = building.Add(row, name,
                             Mathf.Clamp01(threshold.Value), Math.Max(0, advance.Value) * 60d);
                         if (group != null)
@@ -102,11 +111,14 @@ namespace FarmProgress
         void Complete()
         {
             scan.Dispose(); scan = null;
-            foreach (var quest in farm.ActiveQuests)
-                foreach (var item in quest.QuestItems)
-                    foreach (var group in building.Groups.Values)
-                        if (group.ItemId == item.ShopItem.FullId)
-                            group.TaskRemaining += (int)Math.Min(int.MaxValue, Math.Max(0L, (long)item.RequiredAmount - item.Progress));
+            TaskPlanAdapter.AddQuests(buildingPlan, farm);
+            foreach (var group in building.Groups.Values)
+            {
+                TaskMaterial material;
+                if (buildingPlan.Materials.TryGetValue(TaskPlan.Key(group.Category, group.ItemId), out material))
+                    group.TaskRemaining = (int)Math.Min(int.MaxValue, material.Remaining);
+            }
+            Planning = buildingPlan;
             var notes = rules.Evaluate(building, Time.realtimeSinceStartup, Math.Max(0, cooldown.Value));
             bool first = Current == null; Current = building; Error = null; capturedAt = Time.realtimeSinceStartup;
             if (selected != null) { LiveGroup refreshed; selected = Current.Groups.TryGetValue(selected.Key, out refreshed) ? refreshed : null; }
@@ -143,6 +155,7 @@ namespace FarmProgress
                 hudRect.y = Mathf.Clamp(hudRect.y, 0, Mathf.Max(0, Screen.height - hudRect.height));
                 hudRect = GUI.Window(183748, hudRect, DrawCompactHud, "", GUIStyle.none);
             }
+            taskOverlay.Draw(Planning, PlanningAge, Error);
             if (reminders.Value && Time.realtimeSinceStartup >= mutedUntil && Time.realtimeSinceStartup < toastUntil && toast != null) DrawCard(scale);
         }
         static readonly Color Green = new Color(0.42f, 0.91f, 0.57f), Blue = new Color(0.38f, 0.77f, 1f), Red = new Color(1f, 0.40f, 0.36f), Amber = new Color(1f, 0.78f, 0.30f);
@@ -270,6 +283,7 @@ namespace FarmProgress
             PanelTheme.BeginSection("显示与监控", "修改后自动保存，下次进入游戏继续使用。");
             enabled.Value = GUILayout.Toggle(enabled.Value, "开启实时监控");
             hud.Value = GUILayout.Toggle(hud.Value, "显示常驻待办数字");
+            taskOverlay.DrawSettings();
             noticeScale.Value = Slider("浮动提示大小", noticeScale.Value, 0.8f, 1.6f, "倍", 2);
             threshold.Value = Slider("低水分阈值", threshold.Value * 100, 1, 100, "%", 0) / 100f;
             interval.Value = Slider("扫描间隔", interval.Value, 0.5f, 15, "秒", 1);
@@ -280,6 +294,7 @@ namespace FarmProgress
                 noticeScale.Value = 1.1f; noticeSpacing.Value = 30; threshold.Value = 0.1f; interval.Value = 2; advance.Value = 5;
                 cooldown.Value = 300;
                 guides.ResetDefaults();
+                taskOverlay.ResetDefaults();
             }
             PanelTheme.EndSection();
         }

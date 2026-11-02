@@ -30,3 +30,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Input capture tests failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Feeding adapter tests compilation failed' }
 & (Join-Path $testOutput 'AnimalFeedingTests.exe')
 if ($LASTEXITCODE -ne 0) { throw 'Feeding adapter tests failed' }
+& dotnet $compiler /nologo /target:exe /nostdlib+ /langversion:9 "/out:$testOutput\TaskPlanTests.exe" @refs "/reference:$managed\Newtonsoft.Json.dll" "/reference:$testOutput\FarmProgress.dll" (Join-Path $PSScriptRoot 'verification\TaskPlanTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Task planning tests compilation failed' }
+& (Join-Path $testOutput 'TaskPlanTests.exe') (Join-Path $PSScriptRoot 'verification\task-plan-fixtures')
+if ($LASTEXITCODE -ne 0) { throw 'Task planning tests failed' }
+& dotnet $compiler /nologo /target:exe /nostdlib+ /langversion:9 "/out:$testOutput\AiExportTests.exe" @refs "/reference:$managed\Newtonsoft.Json.dll" "/reference:$testOutput\FarmProgress.dll" (Join-Path $PSScriptRoot 'verification\AiExportTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'AI export tests compilation failed' }
+& (Join-Path $testOutput 'AiExportTests.exe') (Join-Path $PSScriptRoot 'verification\ai-export-fixtures') $managed
+if ($LASTEXITCODE -ne 0) { throw 'AI export tests failed' }

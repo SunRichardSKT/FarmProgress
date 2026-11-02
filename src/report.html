@@ -14,6 +14,7 @@
 <div class="task-heading"><div><div class="eyebrow">QUEST PLANNER</div><h2>任务管理</h2><p class="muted">把每一次收获，变成看得见的进度。</p></div><span class="badge" id="taskSnapshot"></span></div>
 <div class="assets" id="taskStats"></div><div class="task-settled" id="settledRewards"></div>
 <p class="notice" id="taskRule">1 代任务需要收获指定品种，仓库库存不能抵交；目标达成后游戏自动结算。下方“还需收获”按目标减去已计入的收获量计算，相关仓库仅供参考。这里列出快照中的全部当前农场任务，不含已结算历史或个人活动任务。</p>
+<section><h2>任务材料合并与种养缺口</h2><p class="muted">同品种取各任务剩余数量的最大值。花、树、鱼、动物可循环收获，“一轮缺口”为可选扩种。鱼按实际鱼种和地格计数，捕获进度为概率估计。</p><div class="controls"><input id="planSearch" aria-label="搜索合并材料" placeholder="搜索材料或品种"><select id="planMode"><option value="materials">任务材料合并</option><option value="holdings">全农场种养数量</option></select></div><div class="tablebox"><table><thead id="planHead"></thead><tbody id="planRows"></tbody></table></div><p class="muted" id="planNote"></p></section>
 <div class="controls task-controls"><label>排序 <select id="taskSort"><option value="medals">奖牌收益：从高到低</option><option value="progress">完成进度：从高到低</option><option value="experience">经验奖励：从高到低</option></select></label><label>状态 <select id="taskFilter"><option value="all">全部任务</option><option value="ongoing">进行中</option><option value="complete">已达成，待自动结算</option></select></label><input id="taskSearch" aria-label="搜索任务" placeholder="搜索任务或目标物品"><span id="taskCount" class="muted"></span></div>
 <div id="taskList" class="task-list"></div><p class="task-help">奖励汇总覆盖全部当前任务，不随筛选变化；显示的是完成这些任务可获得的奖励，不计入现有资产。报告不会自动刷新，在游戏中按 F9 可导出新的任务进度。</p></div>
 <footer>只读客户端快照 · 资产不包含未来收获价值 · 数量按独立物品统计，建筑占地格数另列 · 历史累计收获与房主账号成就不在本报告范围内</footer></main>
@@ -99,6 +100,14 @@ $('farmTab').onclick=()=>showPage('farm');$('tasksTab').onclick=()=>showPage('ta
 for(const id of ['farmTab','tasksTab'])$(id).onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const task=e.key==='End'||e.key!=='Home'&&id==='farmTab';showPage(task?'tasks':'farm');$(task?'tasksTab':'farmTab').focus()}};
 addEventListener('hashchange',()=>showPage(location.hash==='#tasks'?'tasks':'farm'));
 $('taskSort').onchange=renderTasks;$('taskFilter').onchange=renderTasks;$('taskSearch').oninput=renderTasks;
-renderTasks();if(location.hash==='#tasks')showPage('tasks');
+function renderPlan(){const plan=data.taskPlan,all=$('planMode').value==='holdings',query=$('planSearch').value.trim().toLocaleLowerCase();
+ const head=$('planHead'),body=$('planRows');head.replaceChildren();body.replaceChildren();const header=el('tr');for(const title of all?['品种','分类','已种/养','成熟格','未成熟','未知']:['材料','合并待收','已种/养','成熟格','一轮缺口','各任务进度','建议'])header.append(el('th',title));head.append(header);
+ if(!plan){$('planNote').textContent='此快照尚无合并统计，请使用新版 F9 重新导出。';return}
+ let shown=0;for(const row of (all?plan.holdings:plan.materials)||[]){if(all&&row.planted===0)continue;if(query&&!`${row.name} ${row.id}`.toLocaleLowerCase().includes(query))continue;
+  const tr=el('tr'),estimated=row.category==='Pond'?'≈':'';const values=all?[row.name,labels[row.category]||row.category,number(row.planted),number(row.ready),number(row.growing),number(row.unknown)]:[row.name,number(row.remaining),number(row.planted),number(row.ready),row.oneRoundAdditional==null?'未知':estimated+number(row.oneRoundAdditional),(row.demands||[]).map(d=>`#${d.questId} ${number(d.progress)}/${number(d.required)}`).join(' · '),row.action];for(const value of values)tr.append(el('td',value));body.append(tr);shown++}
+ $('planNote').textContent=`${shown} 种材料 / 品种 · 仅已加载、已解锁区域。成熟格包含在已种/养中；鱼的成熟格为捕获尝试，实际成功数可能波动。${plan.tileReadErrors?' 状态未知 '+plan.tileReadErrors+' 格。':''}`;
+}
+$('planMode').onchange=renderPlan;$('planSearch').oninput=renderPlan;
+renderPlan();renderTasks();if(location.hash==='#tasks')showPage('tasks');
 </script></html>
 

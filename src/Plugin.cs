@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace FarmProgress
 {
-    [BepInPlugin("local.farmtogether.progress", "Farm Progress", "1.6.6")]
+    [BepInPlugin("local.farmtogether.progress", "Farm Progress", "1.7.0")]
     [BepInProcess("FarmTogether.exe")]
     [DefaultExecutionOrder(-10000)]
     public sealed class Plugin : BaseUnityPlugin
@@ -29,6 +29,7 @@ namespace FarmProgress
         SyncRecovery syncRecovery;
         GuestFuelAssist guestFuel;
         LiveMonitor monitor;
+        TaskPlanPanel taskPlanPanel;
         AdminNetwork admin;
         AdminPanel adminPanel;
         int panelTab;
@@ -45,12 +46,14 @@ namespace FarmProgress
                 syncRecovery = new SyncRecovery(Logger);
             guestFuel = new GuestFuelAssist(Config, Logger);
             monitor = new LiveMonitor(Config);
+            taskPlanPanel = new TaskPlanPanel { Refresh = monitor.RefreshPlanning };
             monitor.OpenDetails = targetFilter => { visible = true; panelTab = 1; panelScroll = Vector2.zero; };
+            monitor.OpenTaskStatistics = () => { visible = true; panelTab = 2; panelScroll = Vector2.zero; };
             monitor.ReturnToGame = () => visible = false;
             admin = new AdminNetwork(Config, Logger);
             admin.SyncBlocked = () => syncRecovery != null && syncRecovery.NeedsAttention;
             adminPanel = new AdminPanel(admin);
-            Logger.LogInfo("Farm Progress 1.6.6 loaded. Feeding guidance uses native whole-load capacity, permissions and affordability checks.");
+            Logger.LogInfo("Farm Progress 1.7.0 loaded. Persistent shared quest and farm inventory overlay enabled, with full task planning in F8.");
         }
         void CopyFarm()
         {
@@ -167,8 +170,8 @@ namespace FarmProgress
             if (GUILayout.Button("×", GUILayout.Width(36), GUILayout.Height(34))) visible = false;
             GUILayout.EndHorizontal(); GUILayout.Space(12);
             bool narrow = window.width < 720;
-            string[] tabs = { "农场概览", "待办与地图", "提醒设置", "报告与工具" };
-            if (narrow) panelTab = GUILayout.SelectionGrid(panelTab, tabs, 4);
+            string[] tabs = { "农场概览", "待办与地图", "任务统计", "提醒设置", "报告与工具" };
+            if (narrow) panelTab = GUILayout.SelectionGrid(panelTab, tabs, 3);
             GUILayout.BeginHorizontal();
             if (!narrow)
             {
@@ -178,10 +181,11 @@ namespace FarmProgress
                 GUILayout.Space(16); GUILayout.Label("按住 Alt\n可点击屏幕上的\n浮动提示", PanelTheme.Muted);
                 GUILayout.EndVertical(); GUILayout.Space(16);
             }
-            panelScroll = GUILayout.BeginScrollView(panelScroll, GUILayout.Height(Mathf.Max(180, window.height - (narrow ? 165 : 126))));
+            panelScroll = GUILayout.BeginScrollView(panelScroll, GUILayout.Height(Mathf.Max(180, window.height - (narrow ? 205 : 126))));
             if (panelTab == 0) DrawOverview();
             else if (panelTab == 1) monitor.DrawTasks();
-            else if (panelTab == 2) monitor.DrawSettings();
+            else if (panelTab == 2) taskPlanPanel.Draw(monitor.Planning, narrow, monitor.PlanningAge, monitor.Error);
+            else if (panelTab == 3) monitor.DrawSettings();
             else DrawTools();
             GUILayout.EndScrollView(); GUILayout.EndHorizontal();
             GUILayout.Space(6); GUILayout.Label("F8 / Esc 返回游戏   ·   设置自动保存   ·   操作面板时暂时停止角色控制", PanelTheme.Muted);
@@ -199,7 +203,8 @@ namespace FarmProgress
             PanelTheme.EndSection();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("查看待办", PanelTheme.Primary)) { panelTab = 1; panelScroll = Vector2.zero; }
-            if (GUILayout.Button("调整提醒")) { panelTab = 2; panelScroll = Vector2.zero; }
+            if (GUILayout.Button("任务统计")) { panelTab = 2; panelScroll = Vector2.zero; }
+            if (GUILayout.Button("调整提醒")) { panelTab = 3; panelScroll = Vector2.zero; }
             if (GUILayout.Button("导出报告")) Export(observed);
             GUILayout.EndHorizontal();
         }
