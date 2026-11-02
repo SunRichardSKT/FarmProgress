@@ -16,12 +16,14 @@ namespace FarmProgress
         bool pendingAdd;
         Vector2 scroll;
         FarmData farm;
+        public bool Visible { get { return visible && farm != null; } }
+        public void Close() { visible = false; confirm = false; }
         public AdminPanel(AdminNetwork service) { this.service = service; }
         public void Update(FarmData data)
         {
             if (!ReferenceEquals(data, farm)) { farm = data; visible = false; confirm = false; }
             var player = StageScript.Instance == null ? null : StageScript.Instance.LocalPlayer;
-            if (data != null && (player == null || !player.IsBusy) && Input.GetKeyDown(KeyCode.F10) &&
+            if (data != null && (player == null || !player.IsBusy || ModInputCapture.Owns(player)) && Input.GetKeyDown(KeyCode.F10) &&
                 (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) &&
                 (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))) visible = !visible;
             if (visible && Input.GetKeyDown(KeyCode.Escape)) { visible = false; confirm = false; }
@@ -30,6 +32,7 @@ namespace FarmProgress
         {
             if (!visible || farm == null) return;
             rect.width = Mathf.Min(650, Screen.width - 20); rect.height = Mathf.Min(560, Screen.height - 40);
+            rect.x = Mathf.Clamp(rect.x, 0, Screen.width - rect.width); rect.y = Mathf.Clamp(rect.y, 0, Screen.height - rect.height);
             rect = GUILayout.Window(183749, rect, DrawWindow, "农场数据管理 · Ctrl + Shift + F10");
         }
         void DrawWindow(int id)

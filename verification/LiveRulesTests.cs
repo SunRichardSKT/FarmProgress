@@ -48,6 +48,7 @@ class LiveRulesTests
         PresentationChecks();
         GuideChecks();
         HarvestGuideChecks();
+        RangeChecks();
         Console.WriteLine(count + " monitor/reminder/numeric checks passed");
     }
     static void PresentationChecks()
@@ -182,5 +183,25 @@ class LiveRulesTests
         crop["ready"] = false; Check(!GuideIndex.IsHarvestable(crop), "harvest recheck drops a harvested crop");
         crop["ready"] = true; crop["unlocked"] = false; Check(!GuideIndex.IsHarvestable(crop), "locked mature crops excluded from guidance");
         crop["unlocked"] = true; crop["readError"] = "failed"; Check(!GuideIndex.IsHarvestable(crop), "unreadable mature targets excluded from guidance");
+    }
+    static void RangeChecks()
+    {
+        var index = new GuideIndex(); var row = Row("Crop", 1); row["waterFraction"] = 0;
+        index.Add(row, "near", "Near", 10, 0, 0, 0.1);
+        row["x"] = 2; index.Add(row, "far", "Far", 1000, 0, 0, 0.1);
+        Check(index.Pick(0, 0, 0, null, null, 0, true).TileX == 2, "whole-farm far preference includes targets 500 tiles away");
+        Check(index.Pick(0, 0, 0, null, null, 500, true).TileX == 2, "custom radius includes exact boundary");
+        Check(index.Pick(0, 0, 0, null, null, 499, true).TileX == 1, "far preference respects custom maximum distance");
+        Check(index.Pick(0, 0, 0, null, null, 5).TileX == 1, "distance expressed in farm tiles rather than world units");
+        Check(index.Pick(0, 0, 0, null, null, 4) == null, "no marker when all candidates outside radius");
+        Check(index.Pick(0, 0, 0, "water:2:1", "far", 5).TileX == 1, "out-of-range focus and previous target do not escape radius");
+        var feed = Row("Animal", 3); feed["animalFieldId"] = 1; feed["foodAvailableForRace"] = 5; feed["foodNeededToFinishRace"] = 20;
+        index.Add(feed, "feed-near", "Animal", 2, 0, 0, 0.1);
+        feed["animalFieldId"] = 2; feed["x"] = 4; feed["foodAvailableForRace"] = 0;
+        index.Add(feed, "feed-far", "Animal", 1000, 0, 0, 0.1);
+        Check(index.Pick(1, 0, 0, null, null, 5).TileX == 3, "hungry animal outside radius does not block in-range feeding forecast");
+        row["x"] = 5; index.Add(row, "very-far", "Very far", 20000, 0, 0, 0.1);
+        Check(index.Pick(0, 0, 0, null, null, 10000, true).TileX == 5, "custom radius supports ten thousand farm tiles");
+        Check(index.Pick(0, 0, 0, null, null, 0).TileX == 1, "default nearest behavior is preserved");
     }
 }

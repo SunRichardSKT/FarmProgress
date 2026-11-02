@@ -22,3 +22,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Updater tests failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Admin protocol tests compilation failed' }
 & (Join-Path $testOutput 'AdminNetworkTests.exe') (Join-Path $PSScriptRoot ('verification\admin-fixtures-' + [Guid]::NewGuid().ToString('N')))
 if ($LASTEXITCODE -ne 0) { throw 'Admin protocol tests failed' }
+& dotnet $compiler /nologo /target:exe /nostdlib+ /langversion:9 "/out:$testOutput\InputCaptureTests.exe" @refs (Join-Path $PSScriptRoot 'src\ModInputCapture.cs') (Join-Path $PSScriptRoot 'verification\InputCaptureTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Input capture tests compilation failed' }
+& (Join-Path $testOutput 'InputCaptureTests.exe')
+if ($LASTEXITCODE -ne 0) { throw 'Input capture tests failed' }

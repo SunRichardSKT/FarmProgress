@@ -38,25 +38,27 @@ namespace FarmProgress
                     water ? "water:" + x + ":" + y : "feed:" + row["animalFieldId"] + ":" + row["id"],
                 GroupKey = groupKey, Name = name, ItemId = (string)row["id"], TileX = x, TileY = y, X = worldX, Y = worldY, Z = worldZ });
         }
-        public GuideTarget Pick(int kind, double playerX, double playerZ, string previousKey, string focusGroup)
+        public GuideTarget Pick(int kind, double playerX, double playerZ, string previousKey, string focusGroup, double maxDistanceTiles = 0, bool preferFar = false)
         {
             GuideTarget best = null, previous = null;
-            double bestDistance = double.MaxValue, previousDistance = double.MaxValue;
+            double bestDistance = preferFar ? -1 : double.MaxValue, previousDistance = preferFar ? -1 : double.MaxValue;
+            double limitSquared = maxDistanceTiles > 0 ? maxDistanceTiles * maxDistanceTiles * 4 : double.MaxValue;
             bool hasFocused = false, hasHungry = false;
             foreach (var target in targets)
-                if (target.Kind == kind && Available(target) && (focusGroup == null || target.GroupKey == focusGroup))
+                if (target.Kind == kind && Available(target) && target.DistanceSquared(playerX, playerZ) <= limitSquared && (focusGroup == null || target.GroupKey == focusGroup))
                 { hasFocused |= focusGroup != null; hasHungry |= target.Hungry; }
             if (!hasFocused) foreach (var target in targets)
-                if (target.Kind == kind && Available(target)) hasHungry |= target.Hungry;
+                if (target.Kind == kind && Available(target) && target.DistanceSquared(playerX, playerZ) <= limitSquared) hasHungry |= target.Hungry;
             foreach (var target in targets)
             {
                 if (target.Kind != kind || !Available(target) || hasFocused && target.GroupKey != focusGroup || hasHungry && !target.Hungry) continue;
                 double distance = target.DistanceSquared(playerX, playerZ);
-                if (best == null || distance < bestDistance || distance == bestDistance && Earlier(target, best)) { best = target; bestDistance = distance; }
-                if (target.Key == previousKey && distance < previousDistance) { previous = target; previousDistance = distance; }
+                if (distance > limitSquared) continue;
+                if (best == null || (preferFar ? distance > bestDistance : distance < bestDistance) || distance == bestDistance && Earlier(target, best)) { best = target; bestDistance = distance; }
+                if (target.Key == previousKey && (previous == null || (preferFar ? distance > previousDistance : distance < previousDistance))) { previous = target; previousDistance = distance; }
             }
             // Keep a nearby valid target while walking across equal-distance boundaries.
-            if (previous != null && Math.Sqrt(previousDistance) <= Math.Sqrt(bestDistance) * 1.2 + 2) return previous;
+            if (previous != null && (preferFar ? Math.Sqrt(previousDistance) >= Math.Sqrt(bestDistance) / 1.2 - 2 : Math.Sqrt(previousDistance) <= Math.Sqrt(bestDistance) * 1.2 + 2)) return previous;
             return best;
         }
         static bool Earlier(GuideTarget a, GuideTarget b) { return a.TileX < b.TileX || a.TileX == b.TileX && a.TileY < b.TileY; }

@@ -10,6 +10,9 @@ namespace FarmProgress
     {
         readonly ConfigEntry<bool> enabled;
         readonly ConfigEntry<int> mode;
+        readonly ConfigEntry<int> maxDistance;
+        readonly ConfigEntry<bool> preferFar;
+        string rangeInput, rangeError;
         readonly GuideTarget[] targets = new GuideTarget[3];
         readonly Rect[] drawnLabels = new Rect[3];
         readonly Vector2[] drawnAnchors = new Vector2[3];
@@ -26,6 +29,9 @@ namespace FarmProgress
         {
             enabled = config.Bind("Guidance", "Enabled", true, "Show nearest harvest, watering and feeding world-space/edge direction markers");
             mode = config.Bind("Guidance", "Mode", 0, "0: all three, 1: water only, 2: feed only, 3: harvest only");
+            maxDistance = config.Bind("Guidance", "MaxDistanceTiles", 0, "Search radius in tiles, 0 means the whole loaded farm; custom values 1 to 10000");
+            preferFar = config.Bind("Guidance", "PreferFarTargets", false, "Prefer farthest targets within the selected range");
+            rangeInput = maxDistance.Value.ToString();
         }
         public void Update(FarmData data, GuideIndex current, float threshold)
         {
@@ -33,7 +39,7 @@ namespace FarmProgress
             if (newFarm) { farm = data; focusGroup = null; Array.Clear(targets, 0, targets.Length); nextPick = 0; }
             index = current; waterThreshold = threshold; visible = false;
             var stage = StageScript.Instance; var player = stage == null ? null : stage.LocalPlayer;
-            if (!enabled.Value || farm == null || index == null || player == null || player.IsInHouse || player.IsBusy || stage.PhotoMode) return;
+            if (!enabled.Value || farm == null || index == null || player == null || player.IsInHouse || player.IsBusy && !ModInputCapture.Owns(player) || stage.PhotoMode) return;
             camera = player.Controller == null ? null : player.Controller.Camera;
             if (camera == null || !camera.enabled) return;
             visible = true; playerPosition = player.transform.position;
@@ -49,7 +55,7 @@ namespace FarmProgress
                 // Bound work while a large tractor operation invalidates many indexed tiles.
                 for (int attempt = 0; attempt < 8; attempt++)
                 {
-                    var target = index.Pick(kind, playerPosition.x, playerPosition.z, previous, focusGroup);
+                    var target = index.Pick(kind, playerPosition.x, playerPosition.z, previous, focusGroup, Math.Max(0, Math.Min(10000, maxDistance.Value)), preferFar.Value);
                     if (target == null) break;
                     if (StillNeeded(target, growth)) { targets[kind] = target; break; }
                     index.ExcludeTile(target);
@@ -158,10 +164,31 @@ namespace FarmProgress
             Line(tail, tip, accent, 3 * s); Line(left, tip, accent, 3 * s); Line(right, tip, accent, 3 * s);
         }
         public void Focus(string groupKey) { focusGroup = groupKey; nextPick = 0; }
+        public string RangeDescription { get { return (maxDistance.Value <= 0 ? "全农场" : maxDistance.Value + " 格内") + " · " + (preferFar.Value ? "先看远处" : "就近处理"); } }
+        public void ResetDefaults()
+        { enabled.Value = true; mode.Value = 0; maxDistance.Value = 0; preferFar.Value = false; rangeInput = "0"; rangeError = null; focusGroup = null; nextPick = 0; }
         public void DrawSettings()
         {
-            enabled.Value = GUILayout.Toggle(enabled.Value, "浮动方向指引（画面内标记，画面外边缘箭头）");
+            enabled.Value = GUILayout.Toggle(enabled.Value, "开启浮动方向指引");
             if (enabled.Value) mode.Value = GUILayout.SelectionGrid(Mathf.Clamp(mode.Value, 0, 3), new[] { "收获＋浇水＋喂食", "只指引浇水", "只指引喂食", "只指引收获" }, 2);
+            GUILayout.Space(8);
+            GUILayout.Label("搜索距离：" + RangeDescription);
+            GUILayout.BeginHorizontal();
+            foreach (int distance in new[] { 50, 100, 250, 500, 1000, 0 })
+                if (GUILayout.Button(distance == 0 ? "全农场" : distance + " 格")) { maxDistance.Value = distance; rangeInput = distance.ToString(); rangeError = null; nextPick = 0; }
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal(); GUILayout.Label("自定义", GUILayout.Width(62)); rangeInput = GUILayout.TextField(rangeInput, 5);
+            if (GUILayout.Button("应用", GUILayout.Width(75)))
+            {
+                int parsed;
+                if (int.TryParse(rangeInput, out parsed) && parsed >= 0 && parsed <= 10000) { maxDistance.Value = parsed; rangeError = null; nextPick = 0; }
+                else rangeError = "请输入 0 至 10000，0 表示全农场。";
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.Label("0 表示全农场；支持自定义 1–10000 格。", PanelTheme.Muted);
+            if (rangeError != null) GUILayout.Label(rangeError);
+            bool newFar = GUILayout.SelectionGrid(preferFar.Value ? 1 : 0, new[] { "就近处理", "先看远处" }, 2) == 1;
+            if (newFar != preferFar.Value) { preferFar.Value = newFar; nextPick = 0; }
             if (focusGroup != null && GUILayout.Button("恢复指引最近的目标")) { focusGroup = null; nextPick = 0; }
         }
     }

@@ -23,7 +23,7 @@ namespace FarmProgressUpdater
     }
     public static class UpdaterCore
     {
-        public const string BundledVersion = "1.6.3";
+        public const string BundledVersion = "1.6.4";
         public const string DefaultFeed = "https://github.com/SunRichardSKT/FarmProgress/releases/latest/download/update.json";
         public static string Hash(byte[] bytes)
         { using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant(); }
