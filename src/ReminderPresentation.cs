@@ -25,12 +25,12 @@ namespace FarmProgress
                 if (group.Category == "Pond") counts.HarvestPonds += group.Ready;
                 else counts.HarvestTiles += group.Ready;
                 counts.Water += group.LowWater;
-                if (group.Hungry) counts.Hungry++;
-                else if (group.FeedShort) counts.ShortFeed++;
+                if (group.CanFeed && group.Hungry) counts.Hungry++;
+                else if (group.CanFeed) counts.ShortFeed++;
                 counts.Soon += group.Soon;
                 if (group.TaskRemaining > 0) counts.TaskReady += group.Ready;
-                if (group.Hungry) TargetText.Add(counts.names[0], group.Name, 1);
-                else if (group.FeedShort) TargetText.Add(counts.names[4], group.Name, 1);
+                if (group.CanFeed && group.Hungry) TargetText.Add(counts.names[0], group.Name, 1);
+                else if (group.CanFeed) TargetText.Add(counts.names[4], group.Name, 1);
                 TargetText.Add(counts.names[3], group.Name, group.LowWater);
                 TargetText.Add(counts.names[5], group.Name, group.Soon);
                 if (group.Ready > 0)
@@ -67,7 +67,7 @@ namespace FarmProgress
                 case 1: card = new ReminderCard { Kind = kind, Filter = 5, Title = "任务目标可以收获了", Body = "收获后可推进任务" }; break;
                 case 2: card = new ReminderCard { Kind = kind, Filter = 1, Title = "可以收获了", Body = HarvestPonds == 0 ? HarvestTiles + " 格已成熟" : HarvestTiles == 0 ? HarvestPonds + " 个鱼塘可收获" : HarvestTiles + " 格成熟 · " + HarvestPonds + " 个鱼塘" }; break;
                 case 3: card = new ReminderCard { Kind = kind, Filter = 2, Title = "该浇水了", Body = Water + " 格缺水" }; break;
-                case 4: card = new ReminderCard { Kind = kind, Filter = 3, Title = "饲料快不够了", Body = ShortFeed + " 组动物需要补料" }; break;
+                case 4: card = new ReminderCard { Kind = kind, Filter = 3, Title = "可以补料了", Body = ShortFeed + " 组动物当前可补料" }; break;
                 default: card = new ReminderCard { Kind = kind, Filter = 4, Title = "快成熟了", Body = Soon + " 格即将成熟" }; break;
             }
             string[] fallback = { "动物", "任务目标", "成熟目标", "作物或花卉", "动物", "生长目标" };

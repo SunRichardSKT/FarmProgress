@@ -30,8 +30,8 @@ namespace FarmProgress
         {
             if ((bool?)row["unlocked"] != true || row["readError"] != null) return;
             bool harvest = IsHarvestable(row), water = !harvest && LiveRules.NeedsWater(row, threshold);
-            long? available = (long?)row["foodAvailableForRace"], needed = (long?)row["foodNeededToFinishRace"];
-            bool feed = !harvest && (bool?)row["ready"] != true && (string)row["category"] == "Animal" && available.HasValue && needed.HasValue && available < needed;
+            long? available = (long?)row["foodAvailableForRace"];
+            bool feed = !harvest && LiveRules.NeedsFeed(row);
             if (!harvest && !water && !feed) return;
             int x = (int)row["x"], y = (int)row["y"];
             targets.Add(new GuideTarget { Kind = harvest ? 2 : water ? 0 : 1, Hungry = feed && available == 0,

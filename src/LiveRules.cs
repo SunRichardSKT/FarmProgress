@@ -8,11 +8,12 @@ namespace FarmProgress
     {
         public string Key, Name, Category, ItemId;
         public int X, Y, RegionX, RegionY, Count, Ready, LowWater, Soon, TaskRemaining;
-        public bool Hungry, FeedShort;
+        public bool Hungry, FeedShort, CanFeed;
+        public string FeedBlockedReason;
         public double? Eta;
         public readonly HashSet<string> HarvestNames = new HashSet<string>(StringComparer.Ordinal);
         public string Summary { get { return Name + " · " + Count + "格 · 可收获 " + Ready + " · 缺水 " + LowWater +
-            (Hungry ? " · 已断粮" : FeedShort ? " · 饲料不足" : "") + (TaskRemaining > 0 ? " · 任务还需 " + TaskRemaining : "") +
+            (CanFeed ? Hungry ? " · 已断粮，可喂食" : " · 可补料" : Hungry ? " · 已断粮，暂不可喂食" : FeedShort ? " · 本轮还需饲料（预测）" : "") + (TaskRemaining > 0 ? " · 任务还需 " + TaskRemaining : "") +
             " · (" + X + "," + Y + ")"; } }
     }
 
@@ -24,6 +25,12 @@ namespace FarmProgress
         {
             var water = (double?)row["waterFraction"];
             return (bool?)row["ready"] != true && (bool?)row["irrigated"] != true && water.HasValue && water.Value <= threshold;
+        }
+        public static bool NeedsFeed(JObject row)
+        {
+            long? available = (long?)row["foodAvailableForRace"], needed = (long?)row["foodNeededToFinishRace"];
+            return (bool?)row["unlocked"] == true && row["readError"] == null && (string)row["category"] == "Animal" &&
+                (bool?)row["ready"] != true && (bool?)row["canFeedNow"] == true && available.HasValue && needed.HasValue && available < needed;
         }
         public LiveGroup Add(JObject row, string name, double waterThreshold, double soonSeconds)
         {
@@ -57,6 +64,8 @@ namespace FarmProgress
                 long? available = (long?)row["foodAvailableForRace"], needed = (long?)row["foodNeededToFinishRace"];
                 group.Hungry |= needed > 0 && available == 0;
                 group.FeedShort |= available.HasValue && needed.HasValue && available < needed;
+                group.CanFeed |= NeedsFeed(row);
+                group.FeedBlockedReason = (string)row["feedBlockedReason"];
             }
             return group;
         }
@@ -65,8 +74,8 @@ namespace FarmProgress
         {
             int ready = 0, water = 0, hungry = 0, shortFeed = 0;
             foreach (var group in Groups.Values)
-            { ready += group.Ready; water += group.LowWater; if (group.Hungry) hungry++; else if (group.FeedShort) shortFeed++; }
-            return "可收获 " + ready + "（鱼按塘） · 缺水 " + water + "格 · 断粮 " + hungry + "组 · 饲料不足 " + shortFeed + "组";
+            { ready += group.Ready; water += group.LowWater; if (group.CanFeed && group.Hungry) hungry++; else if (group.CanFeed) shortFeed++; }
+            return "可收获 " + ready + "（鱼按塘） · 缺水 " + water + "格 · 可喂断粮 " + hungry + "组 · 可补料 " + shortFeed + "组";
         }
     }
 
@@ -80,8 +89,8 @@ namespace FarmProgress
             var next = new Dictionary<string, bool>(); var messages = new List<ReminderEvent>();
             foreach (var group in rules.Groups.Values)
             {
-                bool[] values = { group.Hungry, group.Ready > 0 && group.TaskRemaining > 0,
-                    group.Ready > 0, group.LowWater > 0, group.FeedShort && !group.Hungry, group.Soon > 0 };
+                bool[] values = { group.Hungry && group.CanFeed, group.Ready > 0 && group.TaskRemaining > 0,
+                    group.Ready > 0, group.LowWater > 0, group.CanFeed && !group.Hungry, group.Soon > 0 };
                 for (int i = 0; i < values.Length; i++)
                 {
                     string key = group.Key + ":" + i; next[key] = values[i]; bool previous; double previousTime;

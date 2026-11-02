@@ -11,6 +11,8 @@ namespace FarmProgress
     {
         readonly Dictionary<Type, Dictionary<string, PropertyInfo>> properties = new Dictionary<Type, Dictionary<string, PropertyInfo>>();
         readonly Dictionary<AnimalField.FieldRaceData, long> feedNeeds = new Dictionary<AnimalField.FieldRaceData, long>();
+        readonly Dictionary<AnimalField.FieldRaceData, AnimalFeedStatus> feedStatus = new Dictionary<AnimalField.FieldRaceData, AnimalFeedStatus>();
+        readonly PlayerScript player = StageScript.Instance == null ? null : StageScript.Instance.LocalPlayer;
         object Read(object obj, string name)
         {
             Dictionary<string, PropertyInfo> members;
@@ -58,9 +60,12 @@ namespace FarmProgress
                 else if (category == FarmTileContentsType.Animal)
                 {
                     var animal = (AnimalFieldContents)c; long needed = 0; uint available = 0; bool found = false;
+                    AnimalFeedStatus feeding = null;
                     foreach (var race in animal.Field.Races) if (race.Definition == animal.Definition)
                     {
                         found = true; available = race.FoodAvailable;
+                        if (!feedStatus.TryGetValue(race, out feeding))
+                        { feeding = AnimalFeeding.Read(animal, race, player); feedStatus.Add(race, feeding); }
                         if (!feedNeeds.TryGetValue(race, out needed))
                         {
                             foreach (var member in race.Tiles) needed += Math.Max(0L, (long)member.HarvestInterval - member.FoodConsumed);
@@ -72,6 +77,8 @@ namespace FarmProgress
                     row.Add("animalFieldId", animal.Field.Id); row.Add("foodConsumed", animal.FoodConsumed);
                     row.Add("foodAvailableForRace", found ? (JToken)available : JValue.CreateNull());
                     row.Add("foodNeededToFinishRace", found ? (JToken)needed : JValue.CreateNull());
+                    row.Add("canFeedNow", feeding != null && feeding.CanFeed);
+                    row.Add("feedBlockedReason", feeding == null ? "未读到动物圈" : feeding.BlockedReason);
                     row.Add("minimumRemainingSecondsWithContinuousFeed", ready ? 0 : remaining);
                     timeKnown = ready || found && available >= needed;
                     basis = timeKnown ? "sufficient_current_feed_for_race" : "requires_more_feed_eta_unknown";

@@ -26,3 +26,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Admin protocol tests failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Input capture tests compilation failed' }
 & (Join-Path $testOutput 'InputCaptureTests.exe')
 if ($LASTEXITCODE -ne 0) { throw 'Input capture tests failed' }
+& dotnet $compiler /nologo /target:exe /nostdlib+ /langversion:9 "/out:$testOutput\AnimalFeedingTests.exe" @refs (Join-Path $PSScriptRoot 'src\AnimalFeeding.cs') (Join-Path $PSScriptRoot 'verification\AnimalFeedingTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Feeding adapter tests compilation failed' }
+& (Join-Path $testOutput 'AnimalFeedingTests.exe')
+if ($LASTEXITCODE -ne 0) { throw 'Feeding adapter tests failed' }

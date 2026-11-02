@@ -77,11 +77,9 @@ namespace FarmProgress
             }
             if (target.Kind == 0) return LiveRules.NeedsWater(row, waterThreshold);
             if ("feed:" + row["animalFieldId"] + ":" + row["id"] != target.Key) return false;
-            long? available = (long?)row["foodAvailableForRace"], needed = (long?)row["foodNeededToFinishRace"];
-            if (!available.HasValue || !needed.HasValue) return false;
-            if (available >= needed) { index.Resolve(target.Key); return false; }
-            target.Hungry = available == 0;
-            return (bool?)row["ready"] != true;
+            if (!LiveRules.NeedsFeed(row)) { index.Resolve(target.Key); return false; }
+            target.Hungry = (long?)row["foodAvailableForRace"] == 0;
+            return true;
         }
         public void Draw(float scale)
         {

@@ -48,7 +48,7 @@ namespace FarmProgress
             interval = config.Bind("Monitor", "RefreshSeconds", 2f, "Delay between completed scans");
             advance = config.Bind("Monitor", "AdvanceMinutes", 5f, "Upcoming harvest warning in minutes");
             cooldown = config.Bind("Monitor", "ReminderCooldownSeconds", 300f, "Reminder cooldown per group and state");
-            feedForecast = config.Bind("Monitor", "FeedForecastNotifications", false, "Also pop up forecast warnings before feed runs out");
+            feedForecast = config.Bind("Monitor", "FeedForecastNotifications", false, "Also notify before starvation, only when native feeding is currently available");
             includeGrowing = config.Bind("Monitor", "IncludeGrowingInTasks", false, "Include groups with no current work in the all-tasks list");
             upcoming = config.Bind("Monitor", "UpcomingNotifications", false, "Also pop up upcoming maturity reminders");
             noticeScale = config.Bind("Monitor", "NotificationScale", 1.1f, "Size of the compact HUD and notification cards, 0.8 to 1.6");
@@ -187,7 +187,7 @@ namespace FarmProgress
                 DrawHudCount(0, "收获", counts.Harvest, Green, 1, "植物/动物按格，鱼按整塘", s);
                 DrawHudCount(1, "浇水", counts.Water, Blue, 2, "未成熟且缺水的地格", s);
                 DrawHudCount(2, "喂食", counts.Hungry + counts.ShortFeed, counts.Hungry > 0 ? Red : Amber, 3,
-                    "已断粮 " + counts.Hungry + " 组；本轮饲料不足 " + counts.ShortFeed + " 组", s);
+                    "当前可喂食：断粮 " + counts.Hungry + " 组；可补料 " + counts.ShortFeed + " 组", s);
             }
             GUI.DragWindow(new Rect(0, 0, hudRect.width, 24 * s));
         }
@@ -263,7 +263,7 @@ namespace FarmProgress
             noticeSpacing.Value = Slider("两次弹窗间隔", noticeSpacing.Value, 12, 180, "秒", 0);
             upcoming.Value = GUILayout.Toggle(upcoming.Value, "提前成熟预告");
             if (upcoming.Value) advance.Value = Slider("提前提醒", advance.Value, 1, 30, "分钟", 0);
-            feedForecast.Value = GUILayout.Toggle(feedForecast.Value, "饲料不足预警（断粮提醒始终保留）");
+            feedForecast.Value = GUILayout.Toggle(feedForecast.Value, "可补料提醒（断粮且可喂食时始终提醒）");
             PanelTheme.EndSection();
                 return;
             }
@@ -304,10 +304,10 @@ namespace FarmProgress
             foreach (var group in groups)
             {
                 if (filter == 1 && group.Ready == 0 || filter == 2 && group.LowWater == 0 ||
-                    filter == 3 && !group.FeedShort || filter == 4 && group.Soon == 0 || filter == 5 && group.TaskRemaining == 0) continue;
-                if (filter == 0 && !includeGrowing.Value && group.Ready == 0 && group.LowWater == 0 && !group.FeedShort) continue;
+                    filter == 3 && !group.CanFeed || filter == 4 && group.Soon == 0 || filter == 5 && group.TaskRemaining == 0) continue;
+                if (filter == 0 && !includeGrowing.Value && group.Ready == 0 && group.LowWater == 0 && !group.CanFeed && !group.Hungry) continue;
                 if (search.Length > 0 && (group.Name ?? "").IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0 && (group.ItemId ?? "").IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0) continue;
-                string state = group.Hungry ? "已断粮" : group.FeedShort ? "待补料" : group.Ready > 0 ? "可收获 " + group.Ready : group.LowWater > 0 ? "缺水 " + group.LowWater : "成长中";
+                string state = group.CanFeed ? group.Hungry ? "已断粮，可喂食" : "可补料" : group.Hungry ? "已断粮，暂不可喂食" : group.Ready > 0 ? "可收获 " + group.Ready : group.LowWater > 0 ? "缺水 " + group.LowWater : "成长中";
                 if (GUILayout.Button(group.Name + "    " + state + "\n坐标 " + group.X + ", " + group.Y + "    共 " + group.Count + " 格")) selected = group;
                 shown++;
             }
@@ -318,7 +318,9 @@ namespace FarmProgress
                 PanelTheme.BeginSection(selected.Name);
                 GUILayout.Label("定位：" + selected.Name + "，坐标 (" + selected.X + "," + selected.Y + ")，区域 (" + selected.RegionX + "," + selected.RegionY + ")");
                 GUILayout.Label(selected.Eta.HasValue ? "下一批预计 " + TimeSpan.FromSeconds(selected.Eta.Value).ToString() : "成熟时间需继续观察（动物供料不足时未知）");
-                if ((selected.Ready > 0 || selected.LowWater > 0 || selected.FeedShort) && GUILayout.Button("指引这里并返回游戏", PanelTheme.Primary))
+                if (selected.Category == "Animal" && selected.FeedShort)
+                    GUILayout.Label(selected.CanFeed ? "现有饲料不够本轮成熟，当前可补料。" : "本轮还需饲料（预测）；" + (selected.FeedBlockedReason ?? "当前无需补料") + "。");
+                if ((selected.Ready > 0 || selected.LowWater > 0 || selected.CanFeed) && GUILayout.Button("指引这里并返回游戏", PanelTheme.Primary))
                 { guides.Focus(selected.Key); if (ReturnToGame != null) ReturnToGame(); }
                 PanelTheme.EndSection();
             }
@@ -327,7 +329,7 @@ namespace FarmProgress
             if (Error != null) GUILayout.Label("刷新错误：" + Error, PanelTheme.Muted);
         }
         float mutedUntil;
-        static int Priority(LiveGroup g) { return (g.Hungry ? 100 : 0) + (g.TaskRemaining > 0 && g.Ready > 0 ? 80 : 0) + (g.Ready > 0 ? 40 : 0) + (g.LowWater > 0 ? 20 : 0) + (g.FeedShort ? 10 : 0); }
+        static int Priority(LiveGroup g) { return (g.Hungry && g.CanFeed ? 100 : 0) + (g.TaskRemaining > 0 && g.Ready > 0 ? 80 : 0) + (g.Ready > 0 ? 40 : 0) + (g.LowWater > 0 ? 20 : 0) + (g.CanFeed ? 10 : 0); }
         void DrawMap(List<LiveGroup> groups)
         {
             var rect = GUILayoutUtility.GetRect(0, 200, GUILayout.ExpandWidth(true)); GUI.Box(rect, "待办示意图（点击定位）");
@@ -335,7 +337,7 @@ namespace FarmProgress
             foreach (var g in groups) { maxX = Math.Max(maxX, g.X + 1); maxY = Math.Max(maxY, g.Y + 1); }
             foreach (var g in groups)
             {
-                if (g.Ready == 0 && g.LowWater == 0 && !g.FeedShort) continue;
+                if (g.Ready == 0 && g.LowWater == 0 && !g.CanFeed) continue;
                 var old = GUI.color; GUI.color = ReferenceEquals(selected, g) ? Color.white : g.Hungry ? Color.red : g.LowWater > 0 ? Color.cyan : Color.green;
                 if (GUI.Button(new Rect(rect.x + 8 + g.X * (rect.width - 25) / maxX, rect.y + 25 + g.Y * (rect.height - 42) / maxY, 10, 10), "")) selected = g;
                 GUI.color = old;

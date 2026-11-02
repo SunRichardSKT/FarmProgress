@@ -1,4 +1,4 @@
-param([string]$GameDir = 'F:\SteamLibrary\steamapps\common\Farm Together', [string]$Version = '1.6.5')
+﻿param([string]$GameDir = 'F:\SteamLibrary\steamapps\common\Farm Together', [string]$Version = '1.6.6')
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'build.ps1') -GameDir $GameDir
 if ($LASTEXITCODE -ne 0) { throw 'Mod build failed' }

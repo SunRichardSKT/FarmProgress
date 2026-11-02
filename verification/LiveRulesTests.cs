@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using FarmProgress;
@@ -8,7 +8,7 @@ class LiveRulesTests
     static int count;
     static void Check(bool value, string label) { if (!value) throw new Exception(label); count++; }
     static JObject Row(string category, int x = 1)
-    { return new JObject { { "category", category }, { "x", x }, { "y", 1 }, { "id", "A" }, { "unlocked", true }, { "irrigated", false }, { "ready", false }, { "waterFraction", null }, { "remainingSecondsEstimate", null } }; }
+    { return new JObject { { "category", category }, { "x", x }, { "y", 1 }, { "id", "A" }, { "unlocked", true }, { "irrigated", false }, { "ready", false }, { "canFeedNow", category == "Animal" }, { "waterFraction", null }, { "remainingSecondsEstimate", null } }; }
     static int Main()
     {
         try { Run(); return 0; }
@@ -34,7 +34,7 @@ class LiveRulesTests
         Check(rules.ReadErrors == 1 && rules.Groups.Count == 3, "read errors disclosed without fake counters");
         var reminder = new ReminderRules(); Check(reminder.Evaluate(rules, 0, 300).Count == 0, "join does not replay existing alerts");
         Check(reminder.Evaluate(rules, 1, 300).Count == 0, "persistent states do not spam");
-        group.Ready = 0; group.LowWater = 0; group.Soon = 0; animals.Hungry = false; animals.FeedShort = false;
+        group.Ready = 0; group.LowWater = 0; group.Soon = 0; animals.Hungry = false; animals.FeedShort = false; animals.CanFeed = false;
         reminder.Evaluate(rules, 2, 300); group.Ready = 1; Check(reminder.Evaluate(rules, 3, 300).Count == 1, "ready transition produces alert");
         group.Ready = 0; reminder.Evaluate(rules, 4, 300); group.Ready = 1;
         Check(reminder.Evaluate(rules, 5, 300).Count == 0, "cooldown suppresses re-entry spam");
@@ -51,14 +51,53 @@ class LiveRulesTests
         HarvestGuideChecks();
         RangeChecks();
         TargetNameChecks();
+        FeedingChecks();
         Console.WriteLine(count + " monitor/reminder/numeric checks passed");
+    }
+    static void FeedingChecks()
+    {
+        var row = Row("Animal"); row["animalFieldId"] = 5;
+        row["foodAvailableForRace"] = 90; row["foodNeededToFinishRace"] = 900;
+        row["canFeedNow"] = false; row["feedBlockedReason"] = "饲料槽未空出一份";
+        var blocked = new LiveRules(); var group = blocked.Add(row, "奶牛", 0.1, 300);
+        Check(group.FeedShort && !group.CanFeed && !group.Hungry, "future feed shortage remains information when trough cannot accept a load");
+        var counts = MonitorCounts.From(blocked);
+        Check(counts.Hungry == 0 && counts.ShortFeed == 0, "forecast-only shortage is absent from actionable HUD totals");
+        var guide = new GuideIndex(); guide.Add(row, group.Key, group.Name, 0, 0, 0, 0.1);
+        Check(guide.Pick(1, 0, 0, null, null) == null, "full trough never creates a feeding direction marker");
+        var queue = new ReminderQueue(); queue.Add(new List<ReminderEvent> { new ReminderEvent { Kind = 4 } }, true, false);
+        Check(queue.Take(blocked, 0, 30, true, false) == null, "enabling refill reminders does not display forecast-only shortages");
+        var reminder = new ReminderRules(); reminder.Evaluate(blocked, 0, 0);
+        row["canFeedNow"] = true; var allowed = new LiveRules(); allowed.Add(row, "奶牛", 0.1, 300);
+        var events = reminder.Evaluate(allowed, 1, 0);
+        Check(events.Count == 1 && events[0].Kind == 4, "refill reminder starts when native feeding becomes available");
+        Check(MonitorCounts.From(allowed).ShortFeed == 1 && LiveRules.NeedsFeed(row), "available nonhungry refill counts once");
+        guide.Add(row, group.Key, group.Name, 0, 0, 0, 0.1);
+        Check(guide.Pick(1, 0, 0, null, null) != null, "available refill produces a direction target");
+        queue.Add(events, true, false); Check(queue.Take(blocked, 1, 30, true, false) == null, "queued refill disappears when native eligibility is lost");
+        row["foodAvailableForRace"] = 0; row["canFeedNow"] = false; row["feedBlockedReason"] = "当前角色没有喂食权限";
+        var hungryBlocked = new LiveRules(); var hungry = hungryBlocked.Add(row, "奶牛", 0.1, 300);
+        Check(hungry.Hungry && !hungry.CanFeed && hungry.FeedBlockedReason.Contains("权限"), "blocked starvation is visible as farm data with a reason");
+        Check(MonitorCounts.From(hungryBlocked).Hungry == 0, "starvation without permission does not ask player to feed");
+        reminder.Evaluate(hungryBlocked, 2, 0); row["canFeedNow"] = true;
+        var hungryAllowed = new LiveRules(); hungryAllowed.Add(row, "奶牛", 0.1, 300);
+        events = reminder.Evaluate(hungryAllowed, 3, 0);
+        Check(events.Count == 1 && events[0].Kind == 0, "restoring feeding permission triggers urgent starvation reminder");
+        row["foodAvailableForRace"] = 900;
+        Check(!LiveRules.NeedsFeed(row), "sufficient feed including reserves does not request an unnecessary top-up");
+        row["foodAvailableForRace"] = 0; row.Remove("canFeedNow");
+        Check(!LiveRules.NeedsFeed(row), "unknown feeding eligibility is not assumed actionable");
+        row["canFeedNow"] = true; row["ready"] = true;
+        Check(!LiveRules.NeedsFeed(row), "ready animal remains a harvest rather than feeding target");
+        row["ready"] = false; row["unlocked"] = false;
+        Check(!LiveRules.NeedsFeed(row), "feeding eligibility cannot enable locked land");
     }
     static void PresentationChecks()
     {
         var rules = new LiveRules();
         var crop = new LiveGroup { Key = "a", Name = new string('名', 100), Category = "Crop", X = 123, Y = 456, Ready = 40, LowWater = 42, Soon = 30 };
         var pond = new LiveGroup { Key = "b", Category = "Pond", Ready = 2 };
-        var animal = new LiveGroup { Key = "c", Category = "Animal", Hungry = true };
+        var animal = new LiveGroup { Key = "c", Category = "Animal", Hungry = true, CanFeed = true };
         rules.Groups.Add("a", crop); rules.Groups.Add("b", pond); rules.Groups.Add("c", animal);
         var counts = MonitorCounts.From(rules);
         Check(counts.HarvestTiles == 40 && counts.HarvestPonds == 2 && counts.Water == 42 && counts.Hungry == 1, "HUD retains mixed harvest units and shared feed groups");
@@ -121,7 +160,7 @@ class LiveRulesTests
         feeds.Add(feed, "feed-hungry", "Animal", 30, 0, 0, 0.1);
         feed["x"] = 9; feeds.Add(feed, "feed-hungry", "Animal", 24, 0, 0, 0.1);
         var hungry = feeds.Pick(1, 0, 0, null, null);
-        Check(hungry.Hungry && hungry.TileX == 9, "nearest hungry animal preferred over nearby feed forecast");
+        Check(hungry.Hungry && hungry.TileX == 9, "nearest hungry animal preferred over nearby available refill");
         feeds.ExcludeTile(hungry);
         Check(feeds.Pick(1, 0, 0, null, null).TileX == 8, "one mature animal does not invalidate entire race");
         feeds.Resolve(hungry.Key);
@@ -201,7 +240,7 @@ class LiveRulesTests
         index.Add(feed, "feed-near", "Animal", 2, 0, 0, 0.1);
         feed["animalFieldId"] = 2; feed["x"] = 4; feed["foodAvailableForRace"] = 0;
         index.Add(feed, "feed-far", "Animal", 1000, 0, 0, 0.1);
-        Check(index.Pick(1, 0, 0, null, null, 5).TileX == 3, "hungry animal outside radius does not block in-range feeding forecast");
+        Check(index.Pick(1, 0, 0, null, null, 5).TileX == 3, "hungry animal outside radius does not block in-range available refill");
         row["x"] = 5; index.Add(row, "very-far", "Very far", 20000, 0, 0, 0.1);
         Check(index.Pick(0, 0, 0, null, null, 10000, true).TileX == 5, "custom radius supports ten thousand farm tiles");
         Check(index.Pick(0, 0, 0, null, null, 0).TileX == 1, "default nearest behavior is preserved");
@@ -210,12 +249,12 @@ class LiveRulesTests
     {
         var rules = new LiveRules();
         var carrot = new LiveGroup { Key = "carrot", Name = "胡萝卜", Category = "Crop", LowWater = 42, Ready = 10, TaskRemaining = 10 };
-        var cow = new LiveGroup { Key = "cow", Name = "奶牛", Category = "Animal", Hungry = true, FeedShort = true };
-        var goat = new LiveGroup { Key = "goat", Name = "山羊", Category = "Animal", FeedShort = true };
+        var cow = new LiveGroup { Key = "cow", Name = "奶牛", Category = "Animal", Hungry = true, FeedShort = true, CanFeed = true };
+        var goat = new LiveGroup { Key = "goat", Name = "山羊", Category = "Animal", FeedShort = true, CanFeed = true };
         rules.Groups.Add("carrot", carrot); rules.Groups.Add("cow", cow); rules.Groups.Add("goat", goat);
         var counts = MonitorCounts.From(rules);
         Check(counts.Card(3).Targets == "胡萝卜" && counts.Card(3).Body == "42 格缺水", "watering popup shows relevant target name and exact quantity");
-        Check(counts.Card(0).Targets == "奶牛" && counts.Card(4).Targets == "山羊", "hungry and forecast popups use their own animal names");
+        Check(counts.Card(0).Targets == "奶牛" && counts.Card(4).Targets == "山羊", "hungry and refill popups use their own animal names");
         Check(counts.Card(1).Targets == "胡萝卜" && !counts.Card(2).Targets.Contains("奶牛"), "task and harvest names exclude unrelated animals");
         rules.Groups.Add("carrot2", new LiveGroup { Name = "胡萝卜", Category = "Crop", LowWater = 2 });
         Check(MonitorCounts.From(rules).Card(3).Targets == "胡萝卜", "same variety across regions appears once");
@@ -228,7 +267,7 @@ class LiveRulesTests
         carrot.LowWater = 0; rules.Groups["carrot2"].LowWater = 0; rules.Groups["wheat"].LowWater = 0;
         Check(queue.Take(rules, 0, 30, false, false).Targets == "玉米", "queued popup refreshes names after work is resolved");
         Check(TargetText.GuideTitle(0, false, "胡萝卜") == "浇水 · 胡萝卜" && TargetText.GuideTitle(1, true, "奶牛") == "喂食 · 奶牛", "direction markers include operation and target name");
-        Check(TargetText.GuideTitle(2, false, "苹果树") == "收获 · 苹果树" && TargetText.GuideTitle(1, false, "山羊") == "补料 · 山羊", "harvest and feed forecast labels identify actual target");
+        Check(TargetText.GuideTitle(2, false, "苹果树") == "收获 · 苹果树" && TargetText.GuideTitle(1, false, "山羊") == "补料 · 山羊", "harvest and refill labels identify actual target");
         string longName = new string('名', 60);
         Check(TargetText.Compact(longName, 12).EndsWith("…") && StringInfo.ParseCombiningCharacters(TargetText.Compact(longName, 12)).Length == 12, "long direction names truncate to a bounded label");
         string combined = "A\u0301\U0001F34E\U0001F34E胡萝卜";
