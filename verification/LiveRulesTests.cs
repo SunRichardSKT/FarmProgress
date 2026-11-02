@@ -8,7 +8,12 @@ class LiveRulesTests
     static void Check(bool value, string label) { if (!value) throw new Exception(label); count++; }
     static JObject Row(string category, int x = 1)
     { return new JObject { { "category", category }, { "x", x }, { "y", 1 }, { "id", "A" }, { "unlocked", true }, { "irrigated", false }, { "ready", false }, { "waterFraction", null }, { "remainingSecondsEstimate", null } }; }
-    static void Main()
+    static int Main()
+    {
+        try { Run(); return 0; }
+        catch (Exception ex) { Console.WriteLine("FAIL " + ex.GetType().Name + ": " + ex.Message); return 1; }
+    }
+    static void Run()
     {
         var rules = new LiveRules(); var row = Row("Crop"); row["waterFraction"] = 0.05; row["remainingSecondsEstimate"] = 200;
         rules.Add(row, "Crop A", 0.1, 300); var group = new System.Collections.Generic.List<LiveGroup>(rules.Groups.Values)[0];
@@ -41,6 +46,7 @@ class LiveRulesTests
         Throws(() => AdminNumbers.Target(0, -1, true, long.MaxValue), "negative balance rejected");
         Throws(() => AdminNumbers.Target(0, 11, false, 10), "capacity overflow rejected");
         PresentationChecks();
+        GuideChecks();
         Console.WriteLine(count + " monitor/reminder/numeric checks passed");
     }
     static void PresentationChecks()
@@ -81,4 +87,68 @@ class LiveRulesTests
         Check(events.Count == 1 && events[0].Kind == 1, "one raw event per task harvest transition");
     }
     static void Throws(Action action, string label) { try { action(); } catch { count++; return; } throw new Exception(label); }
+    static void GuideChecks()
+    {
+        var index = new GuideIndex(); var a = Row("Crop", 1); a["waterFraction"] = 0.01;
+        var b = Row("Crop", 2); b["waterFraction"] = 0.03;
+        index.Add(a, "near", "Crop", 10, 3, 0, 0.1); index.Add(b, "far", "Crop", 14, 4, 0, 0.1);
+        var nearest = index.Pick(0, 0, 0, null, null);
+        Check(nearest.TileX == 1 && nearest.Y == 3, "guide targets actual needy tile and retains terrain height");
+        var farther = index.Pick(0, 0, 0, null, "far");
+        Check(farther.TileX == 2, "explicit region focus overrides nearest choice");
+        Check(index.Pick(0, 0, 0, farther.Key, null).TileX == 2, "near-tie target held stable while walking");
+        Check(index.Pick(0, 10, 0, farther.Key, null).TileX == 1, "materially closer target replaces previous one");
+        Check(index.Pick(0, 0, 0, null, "missing").TileX == 1, "missing focused group falls back to nearest target");
+        index.Resolve(nearest.Key); Check(index.Pick(0, 0, 0, null, null).TileX == 2, "resolved watering tile switches to next target");
+        index.ExcludeTile(farther); Check(index.Pick(0, 0, 0, null, null) == null, "no marker after all candidates resolved");
+        var irrigation = Row("Flower", 3); irrigation["waterFraction"] = 0; irrigation["irrigated"] = true;
+        index.Add(irrigation, "irrigated", "Flower", 0, 0, 0, 0.1);
+        var mature = Row("Crop", 4); mature["waterFraction"] = 0; mature["ready"] = true;
+        index.Add(mature, "mature", "Crop", 0, 0, 0, 0.1);
+        var locked = Row("Crop", 5); locked["waterFraction"] = 0; locked["unlocked"] = false;
+        index.Add(locked, "locked", "Crop", 0, 0, 0, 0.1);
+        var broken = Row("Crop", 6); broken["waterFraction"] = 0; broken["readError"] = "failure";
+        index.Add(broken, "broken", "Crop", 0, 0, 0, 0.1);
+        Check(index.Pick(0, 0, 0, null, null) == null, "irrigated, mature, locked and unreadable tiles excluded");
+        var feeds = new GuideIndex(); var feed = Row("Animal", 7);
+        feed["animalFieldId"] = 7; feed["foodAvailableForRace"] = 5; feed["foodNeededToFinishRace"] = 100;
+        feeds.Add(feed, "feed-near", "Animal", 2, 0, 0, 0.1);
+        feed["x"] = 8; feed["animalFieldId"] = 8; feed["foodAvailableForRace"] = 0;
+        feeds.Add(feed, "feed-hungry", "Animal", 30, 0, 0, 0.1);
+        feed["x"] = 9; feeds.Add(feed, "feed-hungry", "Animal", 24, 0, 0, 0.1);
+        var hungry = feeds.Pick(1, 0, 0, null, null);
+        Check(hungry.Hungry && hungry.TileX == 9, "nearest hungry animal preferred over nearby feed forecast");
+        feeds.ExcludeTile(hungry);
+        Check(feeds.Pick(1, 0, 0, null, null).TileX == 8, "one mature animal does not invalidate entire race");
+        feeds.Resolve(hungry.Key);
+        Check(feeds.Pick(1, 0, 0, null, null).TileX == 7, "refilled race removes all its candidate tiles");
+        Check(feeds.Pick(0, 0, 0, null, null) == null, "water and feeding target categories remain separate");
+        Check(!feeds.HasGroup("feed-hungry") && feeds.HasGroup("feed-near"), "focus detects resolved groups");
+        feed["ready"] = true; feed["animalFieldId"] = 9; feed["x"] = 10;
+        feeds.Add(feed, "ready-animal", "Animal", 0, 0, 0, 0.1);
+        Check(feeds.Pick(1, 0, 0, null, null).TileX == 7, "mature animal not chosen for feed interaction");
+        var center = GuideGeometry.Place(0.5, 0.5, 1, 1000, 500, 30);
+        Check(center.Valid && center.OnScreen && center.X == 500 && center.Y == 250, "visible world target projects to screen center");
+        var right = GuideGeometry.Place(2, 0.5, 1, 1000, 500, 30);
+        Check(!right.OnScreen && Math.Abs(right.X - 970) < 0.001 && right.Y == 250 && right.DirectionX > 0, "offscreen right arrow stays at right inset");
+        var left = GuideGeometry.Place(-1, 0.5, 1, 1000, 500, 30);
+        Check(Math.Abs(left.X - 30) < 0.001 && left.DirectionX < 0, "offscreen left arrow");
+        var top = GuideGeometry.Place(0.5, 2, 1, 1000, 500, 30);
+        Check(Math.Abs(top.Y - 30) < 0.001 && top.DirectionY < 0, "viewport up maps to GUI top edge");
+        var bottom = GuideGeometry.Place(0.5, -1, 1, 1000, 500, 30);
+        Check(Math.Abs(bottom.Y - 470) < 0.001 && bottom.DirectionY > 0, "viewport down maps to GUI bottom edge");
+        var diagonal = GuideGeometry.Place(2, 2, 1, 1000, 500, 30);
+        Check(Math.Abs(diagonal.Y - 30) < 0.001 && Math.Abs(diagonal.X - 940) < 0.001, "diagonal arrows preserve direction on a widescreen viewport");
+        var behind = GuideGeometry.Place(0.8, 0.5, -1, 1000, 500, 30);
+        Check(!behind.OnScreen && Math.Abs(behind.X - 30) < 0.001, "behind-camera projection reverses its mirrored direction");
+        var directlyBehind = GuideGeometry.Place(0.5, 0.5, -1, 1000, 500, 30);
+        Check(directlyBehind.Valid && Math.Abs(directlyBehind.Y - 470) < 0.001, "directly behind target has a stable bottom indicator");
+        var frontLeft = GuideGeometry.Place(0.2, 0.5, 1, 1000, 500, 30);
+        var frontRight = GuideGeometry.Place(0.8, 0.5, 1, 1000, 500, 30);
+        Check(frontLeft.X < center.X && frontRight.X > center.X, "camera-relative left and right follow projected view");
+        Check(!GuideGeometry.Place(double.NaN, 0, 1, 1000, 500, 30).Valid && !GuideGeometry.Place(0, double.PositiveInfinity, 1, 1000, 500, 30).Valid, "unprojectable targets are not rendered");
+        Check(!GuideGeometry.Place(0.5, 0.5, 1, 0, 500, 30).Valid, "inactive zero-width viewport excluded");
+        var tiny = GuideGeometry.Place(2, -1, 1, 80, 60, 100);
+        Check(tiny.Valid && tiny.X >= 0 && tiny.X <= 80 && tiny.Y >= 0 && tiny.Y <= 60, "small viewport retains contained edge marker");
+    }
 }

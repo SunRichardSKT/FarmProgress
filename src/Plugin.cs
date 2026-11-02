@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace FarmProgress
 {
-    [BepInPlugin("local.farmtogether.progress", "Farm Progress", "1.6.1")]
+    [BepInPlugin("local.farmtogether.progress", "Farm Progress", "1.6.2")]
     [BepInProcess("FarmTogether.exe")]
     public sealed class Plugin : BaseUnityPlugin
     {
@@ -44,7 +44,7 @@ namespace FarmProgress
             admin = new AdminNetwork(Config, Logger);
             admin.SyncBlocked = () => syncRecovery != null && syncRecovery.NeedsAttention;
             adminPanel = new AdminPanel(admin);
-            Logger.LogInfo("Farm Progress 1.6.1 loaded. Compact grouped notifications and live farm tools enabled.");
+            Logger.LogInfo("Farm Progress 1.6.2 loaded. Camera-relative watering and feeding direction guides enabled.");
         }
         void CopyFarm()
         {

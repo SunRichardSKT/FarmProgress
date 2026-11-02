@@ -19,10 +19,15 @@ namespace FarmProgress
     {
         public readonly Dictionary<string, LiveGroup> Groups = new Dictionary<string, LiveGroup>();
         public int ReadErrors;
-        public void Add(JObject row, string name, double waterThreshold, double soonSeconds)
+        public static bool NeedsWater(JObject row, double threshold)
         {
-            if (!(bool)row["unlocked"]) return;
-            if (row["readError"] != null) { ReadErrors++; return; }
+            var water = (double?)row["waterFraction"];
+            return (bool?)row["ready"] != true && (bool?)row["irrigated"] != true && water.HasValue && water.Value <= threshold;
+        }
+        public LiveGroup Add(JObject row, string name, double waterThreshold, double soonSeconds)
+        {
+            if (!(bool)row["unlocked"]) return null;
+            if (row["readError"] != null) { ReadErrors++; return null; }
             string category = (string)row["category"], id = (string)row["id"];
             int x = (int)row["x"], y = (int)row["y"];
             int regionX = (int?)row["regionX"] ?? x / 20, regionY = (int?)row["regionY"] ?? y / 20;
@@ -38,8 +43,7 @@ namespace FarmProgress
             group.Count++;
             bool ready = category == "Pond" ? (bool?)row["pondHarvestable"] == true : (bool?)row["ready"] == true;
             if (ready) group.Ready = category == "Pond" ? 1 : group.Ready + 1;
-            var water = (double?)row["waterFraction"];
-            if (!ready && !(bool)row["irrigated"] && water.HasValue && water.Value <= waterThreshold) group.LowWater++;
+            if (!ready && NeedsWater(row, waterThreshold)) group.LowWater++;
             var eta = (double?)row["remainingSecondsEstimate"];
             if (!ready && eta.HasValue)
             {
@@ -52,6 +56,7 @@ namespace FarmProgress
                 group.Hungry |= needed > 0 && available == 0;
                 group.FeedShort |= available.HasValue && needed.HasValue && available < needed;
             }
+            return group;
         }
 
         public string Totals()

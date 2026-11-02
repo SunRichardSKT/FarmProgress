@@ -17,6 +17,8 @@ namespace FarmProgress
         IEnumerator<FarmTile> scan;
         GrowthSnapshot growth;
         LiveRules building;
+        GuideIndex guidanceIndex, buildingGuidance;
+        readonly DirectionGuide guides;
         ReminderRules rules;
         float nextScan, capturedAt, toastUntil;
         ReminderCard toast;
@@ -33,6 +35,8 @@ namespace FarmProgress
         public string Error { get; private set; }
         public LiveMonitor(ConfigFile config)
         {
+            guides = new DirectionGuide(config);
+            guides.OpenDetails = SelectDetails;
             enabled = config.Bind("Monitor", "Enabled", true, "Monitor loaded farm in batches");
             reminders = config.Bind("Monitor", "Reminders", true, "Show grouped in-game reminders");
             hud = config.Bind("Monitor", "Hud", true, "Show movable live summary");
@@ -56,13 +60,16 @@ namespace FarmProgress
             if (!ReferenceEquals(farm, data))
             {
                 if (scan != null) scan.Dispose(); scan = null; farm = data;
-                Current = null; currentCounts = null; rules = new ReminderRules(); queue = new ReminderQueue(); nextScan = 0; selected = null; toast = null; Error = null;
+                Current = null; currentCounts = null; guidanceIndex = null; buildingGuidance = null;
+                rules = new ReminderRules(); queue = new ReminderQueue(); nextScan = 0; selected = null; toast = null; Error = null;
             }
+            guides.Update(enabled.Value ? data : null, guidanceIndex, Mathf.Clamp01(threshold.Value));
             if (farm == null || !enabled.Value) return;
             if (scan == null)
             {
                 if (Time.realtimeSinceStartup < nextScan) return;
                 scan = Tiles(farm).GetEnumerator(); growth = new GrowthSnapshot(); building = new LiveRules();
+                buildingGuidance = new GuideIndex();
             }
             try
             {
@@ -73,13 +80,19 @@ namespace FarmProgress
                     if (row != null)
                     {
                         row["regionX"] = tile.Chunk.ChunkPosition.x; row["regionY"] = tile.Chunk.ChunkPosition.y;
-                        building.Add(row, Localization.Get(tile.Contents.ShopItemDefinition.FullId),
+                        string name = Localization.Get(tile.Contents.ShopItemDefinition.FullId);
+                        var group = building.Add(row, name,
                             Mathf.Clamp01(threshold.Value), Math.Max(0, advance.Value) * 60d);
+                        if (group != null)
+                        {
+                            var position = tile.WorldPosition;
+                            buildingGuidance.Add(row, group.Key, name, position.x, position.y, position.z, Mathf.Clamp01(threshold.Value));
+                        }
                     }
                 }
             }
             catch (Exception ex)
-            { scan.Dispose(); scan = null; Error = ex.Message; nextScan = Time.realtimeSinceStartup + 10; }
+            { if (scan != null) scan.Dispose(); scan = null; Error = ex.Message; nextScan = Time.realtimeSinceStartup + 10; }
         }
         void Complete()
         {
@@ -92,6 +105,8 @@ namespace FarmProgress
             var notes = rules.Evaluate(building, Time.realtimeSinceStartup, Math.Max(0, cooldown.Value));
             bool first = Current == null; Current = building; Error = null; capturedAt = Time.realtimeSinceStartup;
             currentCounts = MonitorCounts.From(Current);
+            guidanceIndex = buildingGuidance;
+            guides.Update(farm, guidanceIndex, Mathf.Clamp01(threshold.Value));
             nextScan = capturedAt + Mathf.Clamp(interval.Value, 0.5f, 60f);
             if (reminders.Value && Time.realtimeSinceStartup >= mutedUntil)
             {
@@ -113,6 +128,7 @@ namespace FarmProgress
             if (farm == null || !enabled.Value) return;
             EnsureStyles();
             float scale = Mathf.Min(Mathf.Clamp(noticeScale.Value, 0.8f, 1.6f), (Screen.width - 24) / 350f);
+            guides.Draw(scale);
             if (hud.Value)
             {
                 hudRect.width = 320 * scale; hudRect.height = 78 * scale;
@@ -211,6 +227,7 @@ namespace FarmProgress
             GUILayout.Label("提示大小 " + Mathf.RoundToInt(noticeScale.Value * 100) + "% · 同类合并，间隔 " + Math.Max(12, noticeSpacing.Value).ToString("0") + " 秒");
             upcoming.Value = GUILayout.Toggle(upcoming.Value, "提前成熟弹窗（默认关闭）");
             feedForecast.Value = GUILayout.Toggle(feedForecast.Value, "饲料不足预警弹窗（默认关闭，断粮仍会提醒）");
+            guides.DrawSettings();
             if (Current == null) { GUILayout.Label(Error ?? "正在分批扫描农场…"); return; }
             GUILayout.Label(Current.Totals());
             GUILayout.Label((farm.IsLocal ? "房主数据" : "当前客户端观测") + " · " + (int)(Time.realtimeSinceStartup - capturedAt) + "秒前 · 读取失败 " + Current.ReadErrors);
@@ -229,6 +246,7 @@ namespace FarmProgress
             {
                 GUILayout.Label("定位：" + selected.Name + "，坐标 (" + selected.X + "," + selected.Y + ")，区域 (" + selected.RegionX + "," + selected.RegionY + ")");
                 GUILayout.Label(selected.Eta.HasValue ? "下一批预计 " + TimeSpan.FromSeconds(selected.Eta.Value).ToString() : "成熟时间需继续观察（动物供料不足时未知）");
+                if ((selected.LowWater > 0 || selected.FeedShort) && GUILayout.Button("将这个区域设为方向指引目标")) guides.Focus(selected.Key);
             }
             DrawMap(groups);
             if (Error != null) GUILayout.Label("刷新错误：" + Error);
